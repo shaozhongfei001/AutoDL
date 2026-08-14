@@ -1,8 +1,6 @@
-<p align="center">
-  <img src="assets/banner.png" alt="Deep Researcher Agent" width="700"/>
-</p>
 
-<h1 align="center">Deep Researcher Agent</h1>
+
+<h1 align="center">Deep Learning Researcher Agent</h1>
 <h3 align="center">24/7 Autonomous Deep Learning Experiment Agent</h3>
 
 <p align="center">
@@ -12,8 +10,6 @@
 <p align="center">
   <a href="README.md">English</a> |
   <a href="docs/README_CN.md">中文</a> |
-  <a href="docs/README_JP.md">日本語</a> |
-  <a href="docs/README_KR.md">한국어</a>
 </p>
 
 <p align="center">
