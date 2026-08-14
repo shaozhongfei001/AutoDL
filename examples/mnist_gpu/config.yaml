@@ -1,0 +1,30 @@
+# MNIST GPU experiment config — real PyTorch GPU training.
+project:
+  name: "mnist-gpu"
+  brief: "PROJECT_BRIEF.md"
+  workspace: "workspace"
+
+agent:
+  # DeepSeek official API is OpenAI-compatible: provider "openai" + base_url.
+  provider: "openai"
+  model: "deepseek-chat"
+  base_url: "https://api.deepseek.com"
+  api_key_env: "DSEEK_2026_SZF_KEY"
+  max_cycles: 1
+  max_steps_per_cycle: 8
+  cooldown_interval: 30
+
+monitor:
+  # Short enough to observe the monitoring loop during a short training run.
+  poll_interval: 5
+  zero_llm: true
+  notify_on_complete: true
+
+gpu:
+  auto_detect: true
+  reserve_last: false
+
+experiment:
+  mandatory_dry_run: true
+  max_parallel: 1
+  log_tail_lines: 40

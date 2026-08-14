@@ -1,0 +1,29 @@
+# Light demo project config — smoke-test the end-to-end agent loop on CPU.
+project:
+  name: "light-demo"
+  brief: "PROJECT_BRIEF.md"
+  workspace: "workspace"
+
+agent:
+  # Volcano Ark is OpenAI-compatible: use provider "openai" with an explicit
+  # base_url. "volcengine-agent-plan" is not a supported provider value and
+  # would raise UnknownProvider in AgentDispatcher.
+  provider: "openai"
+  model: "deepseek-v4-flash"
+  base_url: "https://api.deepseek.com"
+  api_key_env: "DSEEK_2026_SZF_KEY"
+  # Keep the first validation run small and fast.
+  max_cycles: 1
+  max_steps_per_cycle: 8
+  cooldown_interval: 30
+
+monitor:
+  # Keep it short so the monitor's polling loop is actually observed during a
+  # ~60s training run (see PROJECT_BRIEF.md: agent must launch a >poll run).
+  poll_interval: 5
+  zero_llm: true
+
+experiment:
+  mandatory_dry_run: true
+  max_parallel: 1
+  log_tail_lines: 30

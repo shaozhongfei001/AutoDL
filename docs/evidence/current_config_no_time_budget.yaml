@@ -1,0 +1,43 @@
+# Evidence: AutoDL 配置中无"固定时间预算"归一化机制
+# Source: config.yaml (项目根), examples/mnist_gpu/config.yaml
+# Supports: P0 缺失项① —— 无 TIME_BUDGET 归一化
+
+# ==== 项目根 config.yaml 的 agent/monitor 段（节选）====
+agent:
+  provider: "openai"
+  model: "Qwen3.6-35B-A3B"
+  base_url: "http://10.62.64.38:30808/api/inference/v1"
+  api_key_env: "VOLCANO_ARK_APIKEY"
+  max_cycles: -1                  # -1 = run forever
+  max_steps_per_cycle: 3
+  cooldown_interval: 300
+
+monitor:
+  poll_interval: 900              # 监控轮询间隔（15 分钟），与训练时长无关
+  zero_llm: true
+
+# ==== examples/mnist_gpu/config.yaml（节选）====
+agent:
+  provider: "openai"
+  model: "deepseek-chat"
+  max_cycles: 1
+  max_steps_per_cycle: 8
+  cooldown_interval: 30
+
+monitor:
+  poll_interval: 5
+  zero_llm: true
+
+experiment:
+  mandatory_dry_run: true
+  max_parallel: 1
+  log_tail_lines: 40
+
+# 对比：
+# - autoresearch 在 prepare.py 有 TIME_BUDGET=300（固定训练时长），且所有训练进度
+#   调度基于 progress = training_time / TIME_BUDGET（见 ar_train_time_budget.py）
+# - 当前项目 config 中 **无任何 time_budget / 固定训练时长** 配置。
+#   训练按 epoch 跑（由 code agent 写的 train.py 决定），指标为 test_accuracy 等
+#   任务相关值，未做"相同计算预算下公平比较"的归一化。
+# 结论：当前项目无法保证"agent 改架构后，在相同时间预算下公平比较效果"，
+# 因而难以像 autoresearch 那样可靠地找到"平台最优模型"。
