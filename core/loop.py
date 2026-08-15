@@ -165,6 +165,13 @@ class ResearchLoop:
             self._le_cfg.get("dedup", {}).get("repeated_hypothesis_limit", 1)
         )
         self._attempted_hypotheses: set[str] = set()
+        # I1 (P0): unattended convergence/termination. When max_cycles<0 and the
+        # machine loop keeps rejecting candidates, converge after N rounds with
+        # no KEEP instead of looping forever. 0 disables the guard (legacy).
+        convergence = self._le_cfg.get("convergence", {})
+        self._conv_max_no_improvement_rounds = int(convergence.get("max_no_improvement_rounds", 10))
+        self._no_improvement_streak = 0
+        self._convergence_reason = ""
 
         # M6 self-healing: on restart, resume de-dup state from the ledger's
         # promoted candidates so already-accepted ideas are not re-proposed.
@@ -289,6 +296,32 @@ class ResearchLoop:
                 self._record_cycle_outcome(think_result, execute_result, reflect_result)
                 self._record_to_ledger(think_result, execute_result, reflect_result)
                 self._refresh_obsidian(reflect_result=reflect_result, directive=directive)
+
+                # I1 (P0): unattended convergence. When running without a hard
+                # max_cycles cap, converge if the machine loop keeps finding no
+                # real improvement (or the no-progress escalation reaches
+                # terminate). Records an auditable reason and stops the loop.
+                if self.max_cycles < 0:
+                    if self._conv_max_no_improvement_rounds > 0 and \
+                            self._no_improvement_streak >= self._conv_max_no_improvement_rounds:
+                        self._convergence_reason = (
+                            f"converged: no machine-verified improvement (KEEP) for "
+                            f"{self._no_improvement_streak} consecutive rounds "
+                            f"(limit {self._conv_max_no_improvement_rounds})"
+                        )
+                        logger.warning(self._convergence_reason)
+                        self.memory.log_decision(f"Cycle {self.cycle_count}: {self._convergence_reason}")
+                        self._running = False
+                        break
+                    escalation = think_result.get("no_progress_escalation")
+                    if escalation == "terminate":
+                        self._convergence_reason = (
+                            f"converged: no-progress escalation reached 'terminate'"
+                        )
+                        logger.warning(self._convergence_reason)
+                        self.memory.log_decision(f"Cycle {self.cycle_count}: {self._convergence_reason}")
+                        self._running = False
+                        break
 
             except Exception as e:
                 logger.error(f"Cycle {self.cycle_count} failed: {e}", exc_info=True)
@@ -440,6 +473,13 @@ class ResearchLoop:
 
         self._record_verdict(machine)
 
+        # I1: track consecutive rounds with no machine-verified improvement so the
+        # unattended loop can converge instead of looping forever.
+        if machine.get("verdict") == "KEEP":
+            self._no_improvement_streak = 0
+        else:
+            self._no_improvement_streak += 1
+
         # Write machine verdict into durable memory + state (facts, not narrative).
         self.memory.log_decision(
             f"M2 verdict cycle={self.cycle_count}: {machine['verdict']} "
@@ -449,6 +489,7 @@ class ResearchLoop:
         state["verdict"] = machine.get("verdict")
         state["promotion_status"] = promotion_status
         state["last_verdict"] = machine
+        state["no_improvement_streak"] = self._no_improvement_streak
         self.state_path.write_text(json.dumps(state, indent=2))
 
         logger.info(f"M2 machine verdict cycle={self.cycle_count}: {machine['verdict']} (contract={contract_status})")
