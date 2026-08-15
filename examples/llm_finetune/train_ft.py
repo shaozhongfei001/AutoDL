@@ -40,9 +40,11 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--lr", type=float, default=1e-4)
-    p.add_argument("--max-len", type=int, default=256)
-    p.add_argument("--batch-size", type=int, default=4)
-    p.add_argument("--max-examples", type=int, default=500)
+    p.add_argument("--max-len", type=int, default=128)
+    # 6GB VRAM: full fine-tune of Qwen2.5-0.5B is VRAM-bound; batch 1 + short
+    # max_len are the safe defaults (bs=4,len=256 OOMs on a 6GB card).
+    p.add_argument("--batch-size", type=int, default=1)
+    p.add_argument("--max-examples", type=int, default=20000)
     p.add_argument("--subsample-seed", type=int, default=20260815)
     p.add_argument("--warmup-ratio", type=float, default=0.05)
     p.add_argument("--dry-run", action="store_true",
@@ -70,10 +72,10 @@ def load_model_and_tokenizer(max_len: int):
 def load_dataset(max_examples: int, seed: int, max_len: int, tokenizer):
     """Load alpaca-cleaned via mirror and tokenize a fixed subsample.
 
-    Returns (train_enc, val_enc) HF Datasets. A small 500-example subset keeps
-    the whole run inside the framework's GPU + time budget.
+    Returns (train_enc, val_enc) HF Datasets. Uses ``Dataset.map`` with
+    batched tokenization (fast, not O(n^2)); the 20000-example subset keeps the
+    run inside the 6GB-GPU + time budget.
     """
-    import torch
     from datasets import load_dataset
 
     ds = load_dataset(DATASET_ID, split="train")
@@ -86,24 +88,20 @@ def load_dataset(max_examples: int, seed: int, max_len: int, tokenizer):
             response=ex["output"] or "",
         )
 
-    texts = [fmt(ex) for ex in ds]
+    # Fast batched tokenization via map() (avoid per-row python loop).
+    def tokenize_batch(batch):
+        texts = [BASE_PROMPT.format(instruction=i or "", response=r or "")
+                 for i, r in zip(batch["instruction"], batch["output"])]
+        enc = tokenizer(texts, truncation=True, max_length=max_len,
+                        padding="max_length", return_tensors="np")
+        return {"input_ids": enc["input_ids"].tolist(),
+                "attention_mask": enc["attention_mask"].tolist(),
+                "labels": enc["input_ids"].tolist()}
 
-    def tokenize(text):
-        enc = tokenizer(text, truncation=True, max_length=max_len,
-                        padding="max_length", return_tensors="pt")
-        enc["labels"] = enc["input_ids"].clone()
-        return enc
-
-    import datasets as hfds
-    train = hfds.Dataset.from_dict({"input_ids": [], "attention_mask": [], "labels": []})
-    for t in texts:
-        e = tokenize(t)
-        train = train.add_item({
-            "input_ids": e["input_ids"].squeeze(0).tolist(),
-            "attention_mask": e["attention_mask"].squeeze(0).tolist(),
-            "labels": e["labels"].squeeze(0).tolist(),
-        })
-    split = train.train_test_split(test_size=0.1, seed=seed)
+    tokenized = ds.map(tokenize_batch, batched=True, batch_size=64,
+                       remove_columns=ds.column_names)
+    tokenized.set_format(type="torch")
+    split = tokenized.train_test_split(test_size=0.1, seed=seed)
     return split["train"], split["test"]
 
 
@@ -139,10 +137,11 @@ def main():
     criterion = torch.nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id)
 
     def collate(batch):
+        # dataset was set to torch format, so each field is already a Tensor;
+        # stack on a new batch dim and move to device.
         return {
-            "input_ids": torch.tensor([b["input_ids"] for b in batch], device=device),
-            "attention_mask": torch.tensor([b["attention_mask"] for b in batch], device=device),
-            "labels": torch.tensor([b["labels"] for b in batch], device=device),
+            k: torch.stack([b[k] for b in batch]).to(device)
+            for k in ("input_ids", "attention_mask", "labels")
         }
 
     def run_epoch(loader, train: bool):

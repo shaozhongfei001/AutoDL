@@ -17,4 +17,7 @@ examples/mnist_gpu/data/
 *.pth
 *.ckpt
 *.bin
+*.safetensors
+# fine-tuned model weights (large, generated artifacts)
+examples/llm_finetune/model_ft/
 .DS_Store

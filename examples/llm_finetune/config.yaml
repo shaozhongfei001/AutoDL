@@ -30,8 +30,8 @@ experiment:
   log_tail_lines: 40
   budget:
     mode: "active_wall_clock_seconds"
-    limit: 1500             # LLM fine-tune is slower than MNIST; ~25min active
-    hard_wall_clock_limit: 2100  # hard cap; monitor kills runs past this
+    limit: 7500             # 20000-example full fine-tune (~2h active)
+    hard_wall_clock_limit: 9000  # hard cap; monitor kills runs past this
     timer: "monotonic"
     # In-run early stop on validation_loss: loss dropping means improving; stop
     # once it has plateaued for `patience` epochs. direction=lower_better because
@@ -54,7 +54,7 @@ experiment:
   comparability:
     hardware_cohort_id: "COHORT-RTX3060L-6G"
     requires_exact_cohort: true
-    data_fingerprint: "alpaca-cleaned-subset-500"
+    data_fingerprint: "alpaca-cleaned-subset-20000"
     evaluator_fingerprint: "FIXED-SPLIT-SEED=20260815"
   write_policy:
     allowlist: []

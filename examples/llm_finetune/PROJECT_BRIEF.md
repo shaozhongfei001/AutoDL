@@ -18,8 +18,8 @@ fine-tuning hyper-parameters.
   training script MUST set `HF_ENDPOINT=https://hf-mirror.com` (verified
   reachable) before calling `AutoModelForCausalLM.from_pretrained`.
 - **Dataset**: `yahma/alpaca-cleaned` (52k instruction/response pairs) is
-  reachable via the same mirror. The script sub-samples a fixed 500 examples
-  for a tight budget (fingerprint `alpaca-cleaned-subset-500`).
+  reachable via the same mirror. The script sub-samples a fixed 20000 examples
+  for the convergence run (fingerprint `alpaca-cleaned-subset-20000`).
 - **Runtime**: use `/home/szf/anaconda3/bin/python` (has torch 2.3 + transformers).
   Note: plain `python` in launch_experiment resolves to a torch-less interpreter;
   pass the absolute anaconda python path.
