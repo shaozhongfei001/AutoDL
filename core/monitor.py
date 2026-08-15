@@ -35,11 +35,15 @@ class ExperimentMonitor:
         poll_interval: int = 900,
         zero_llm: bool = True,
         backend: Optional[ExecutionBackend] = None,
+        budget: Optional[dict] = None,
     ):
         self.poll_interval = poll_interval  # seconds between checks
         self.zero_llm = zero_llm
         self.backend = backend or LocalExecutionBackend(".")
         self._active_experiments: dict[int, dict] = {}
+        # A contract: optional budget (mode/limit/hard_wall_clock_limit/enforced).
+        # Legacy (no budget) keeps the old unbounded-wait behavior.
+        self.budget = budget or {}
 
     def launch_experiment(self, command: str, log_file: str, gpu: Optional[str] = None) -> dict:
         """Launch an experiment via nohup and track its PID.
@@ -79,13 +83,27 @@ class ExperimentMonitor:
         """
         logger.info(f"Monitoring PID={pid}, polling every {self.poll_interval}s")
 
+        hard_limit = float(self.budget.get("hard_wall_clock_limit") or 0)
+        started = self._active_experiments.get(pid, {}).get("start_time", time.time())
+
         while self._is_process_alive(pid):
             time.sleep(self.poll_interval)
 
             # Log current status (no LLM involved)
             gpu_info = self._safe_gpu_status()
             log_tail = self._safe_tail_file(log_file, lines=5)
-            elapsed = time.time() - self._active_experiments.get(pid, {}).get("start_time", time.time())
+            elapsed = time.time() - started
+
+            # A contract: hard wall-clock backstop. If the process outlives the
+            # configured hard limit, kill it so it cannot burn unbounded budget.
+            # (The poll_interval bounds discovery latency but NOT the budget.)
+            if hard_limit > 0 and elapsed >= hard_limit:
+                logger.warning(
+                    f"PID={pid} exceeded hard_wall_clock_limit={hard_limit:.0f}s; "
+                    f"terminating to enforce experiment budget"
+                )
+                self._terminate(pid)
+                break
 
             logger.info(
                 f"PID={pid} alive | elapsed={elapsed/3600:.1f}h | "
@@ -93,32 +111,48 @@ class ExperimentMonitor:
                 f"last_log: {log_tail[-1] if log_tail else 'N/A'}"
             )
 
-        # Experiment finished — ask the backend for the real outcome. Slurm
-        # reports the sacct terminal state (so FAILED/TIMEOUT are not mislabelled
-        # as success); pid-only backends return unknown and we keep "completed".
-        elapsed = time.time() - self._active_experiments.get(pid, {}).get("start_time", time.time())
+        # Experiment finished (or hard-killed) — ask the backend for the real
+        # outcome. Slurm reports the sacct terminal state; pid-only backends
+        # return unknown and we classify via the budget/elapsed instead.
+        elapsed = time.time() - started
         log_tail = self._safe_tail_file(log_file, lines=50)
 
         final = self._safe_final_status(pid)
         success = final.get("success")
+
+        # A contract: classify the run under the active budget (advisory when
+        # budget absent -> SUCCESS/TIMEOUT; full status when enforced).
+        from .experiment_contract import classify_run_outcome
+        active_seconds = self._extract_active_train_seconds(log_tail)
+        terminated = "crash" if success is False else "completed"
+        contract_status = classify_run_outcome(
+            active_seconds or elapsed, self.budget, terminated=terminated
+        )
+        # Backwards-compatible `status`: "completed"/"failed" as before. The new
+        # `contract_status` (SUCCESS/BUDGET_EXCEEDED/TIMEOUT/CRASH) is additive
+        # and only informative when a budget is configured.
         status = "failed" if success is False else "completed"
 
         if pid in self._active_experiments:
             self._active_experiments[pid]["status"] = status
 
+        metrics = self._extract_metrics(log_tail)
         result = {
             "pid": pid,
             "status": status,
+            "contract_status": contract_status,
             "success": success,
             "terminal_state": final.get("state", "unknown"),
             "elapsed_hours": elapsed / 3600,
+            "active_train_seconds": active_seconds,
+            "budget_enforced": bool(self.budget.get("enforced")),
             "log_tail": "\n".join(log_tail),
-            "metrics": self._extract_metrics(log_tail),
+            "metrics": metrics,
         }
 
         logger.info(
             f"Experiment PID={pid} {status} after {result['elapsed_hours']:.1f}h "
-            f"(state={result['terminal_state']})"
+            f"(state={result['terminal_state']}, contract={contract_status})"
         )
 
         if notify:
@@ -137,6 +171,41 @@ class ExperimentMonitor:
     def _is_process_alive(self, pid: int) -> bool:
         """Check if process is still running (zero cost)."""
         return self.backend.is_process_alive(pid)
+
+    def _terminate(self, pid: int) -> bool:
+        """Best-effort terminate a run that exceeded its hard budget.
+
+        For a local pid this is SIGTERM then a short grace before SIGKILL.
+        Slurm backends override via ``cancel``; here we degrade gracefully to
+        the backend's ``cancel`` if present, else nothing (the process is left
+        for the OS / Slurm --time to reap).
+        """
+        cancel = getattr(self.backend, "cancel", None)
+        if callable(cancel):
+            try:
+                return bool(cancel(pid))
+            except Exception as exc:  # pragma: no cover
+                logger.warning(f"cancel({pid}) failed: {exc}")
+                return False
+        try:
+            import signal as _signal
+            import os as _os
+            _os.kill(pid, _signal.SIGTERM)
+            return True
+        except (OSError, TypeError):
+            return False
+
+    def _extract_active_train_seconds(self, log_lines: list[str]) -> Optional[float]:
+        """Read ``active_train_seconds=...`` from the tail of the training log."""
+        import re
+        for line in reversed(log_lines):
+            m = re.search(r"active_train_seconds=([0-9.]+)", line)
+            if m:
+                try:
+                    return float(m.group(1))
+                except ValueError:
+                    return None
+        return None
 
     def _safe_gpu_status(self) -> dict:
         try:
@@ -163,13 +232,33 @@ class ExperimentMonitor:
         Looks for patterns like:
         - loss: 0.123
         - accuracy: 95.2%
+        - validation_accuracy=0.99 / test_accuracy=0.98 (split-aware)
         - FGD: 0.582
         - epoch 100/200
+
+        Split responsibility: ``validation_*`` values are kept for per-round
+        selection; ``test_*`` values are tagged so downstream code can treat
+        them as independent-acceptance-only (never fed back to selection).
         """
         import re
         metrics = {}
         for line in reversed(log_lines):
-            # Common metric patterns
+            # Split-aware metrics first (validation vs test).
+            for pattern, key in [
+                (r"validation_accuracy=([0-9.]+)", "validation_accuracy"),
+                (r"validation_loss=([0-9.]+)", "validation_loss"),
+                (r"test_accuracy=([0-9.]+)", "test_accuracy"),
+                (r"test_loss=([0-9.]+)", "test_loss"),
+                (r"train_accuracy=([0-9.]+)", "train_accuracy"),
+            ]:
+                if key not in metrics:
+                    match = re.search(pattern, line)
+                    if match:
+                        try:
+                            metrics[key] = float(match.group(1))
+                        except ValueError:
+                            metrics[key] = match.group(1)
+            # Generic patterns (backwards-compatible).
             for pattern, key in [
                 (r"loss[:\s]+([0-9.]+)", "loss"),
                 (r"acc(?:uracy)?[:\s]+([0-9.]+)", "accuracy"),

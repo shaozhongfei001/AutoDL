@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0",
+  "manifest_type": "experiment_artifacts",
+  "study_id": "<STUDY_ID>",
+  "experiment_id": "<EXPERIMENT_ID>",
+  "created_at": "<ISO8601>",
+  "status": "INCOMPLETE",
+  "code": {
+    "champion_before_sha": "<GIT_SHA>",
+    "candidate_sha": "<GIT_SHA>",
+    "diff_sha256": "<SHA256>",
+    "patch_uri": "<URI>"
+  },
+  "contracts": {
+    "study_contract_sha256": "<SHA256>",
+    "experiment_contract_sha256": "<SHA256>",
+    "promotion_policy_version": "<VERSION>",
+    "tool_policy_sha256": "<SHA256>"
+  },
+  "environment": {
+    "hardware_cohort_id": "<COHORT_ID>",
+    "environment_manifest_uri": "<URI>",
+    "environment_manifest_sha256": "<SHA256>"
+  },
+  "runtime": {
+    "backend": "<BACKEND>",
+    "job_id": "<JOB_ID>",
+    "exit_code": null,
+    "terminal_state": "<PENDING>",
+    "time_events_uri": "<URI>",
+    "resource_metrics_uri": "<URI>"
+  },
+  "evaluation": {
+    "validation_metrics_uri": "<URI>",
+    "validation_metrics_sha256": "<SHA256>",
+    "test_metrics_uri": null,
+    "test_metrics_visible_to_iterative_agents": false
+  },
+  "files": [
+    {
+      "path": "<RELATIVE_PATH>",
+      "type": "<checkpoint_log_metrics_environment_patch_other>",
+      "size_bytes": 0,
+      "sha256": "<SHA256>",
+      "retention_class": "<CLASS>"
+    }
+  ],
+  "integrity": {
+    "all_required_files_present": false,
+    "all_hashes_verified": false,
+    "published_atomically": false,
+    "manifest_sha256": "<CALCULATED_AFTER_FINALIZATION>"
+  }
+}
+

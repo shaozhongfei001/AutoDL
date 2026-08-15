@@ -70,3 +70,33 @@ On 2026-04-08, an AI assistant violated rules 2 and 4 above:
 - `CLAUDE.md` (this repo, root) — same policy + general AI guide for the project
 - `~/CLAUDE.md` (user's home) — global Claude rules + full 2026-04-08 incident report
 - `~/AGENTS.md` (user's home) — global Codex CLI rules
+
+---
+
+## 📋 SDD Development Governance (规格驱动开发治理契约)
+
+**状态：`CONTRACT_CANDIDATE`** — 在执行任何 AutoDL 机制改造前，必须遵循本治理契约。
+
+SDD 治理包位于 `.codebuddy/rules/sdd/`（CodeBuddy `rules` 脚手架规范），入口见 `.codebuddy/rules/sdd.md`。
+
+### 何时必须遵循
+
+当任务涉及以下任何内容时，**必须先读 `.codebuddy/rules/sdd/00_README.md` 和 `PROJECT_STATUS.yaml`** 确认当前 Gate 与允许动作：
+
+- 修改实验预算 / 时间 / 计时逻辑
+- 引入或修改 Git 驱动的实验版本化 / 晋级 / 回退
+- 修改评估器、数据 split 职责、指标选优逻辑
+- 修改 Agent 工具权限、受保护路径、写文件边界
+- 建立 Study / Experiment 合同、制品清单、事件账本
+- 任何 P0 改造（实验有效性合同 / 实验事务隔离与安全晋级）
+
+### 核心约束速览
+
+1. **Spec first** — 先写合同，再编码；代码不得反向定义需求。
+2. **Validation selects, test accepts** — validation 逐轮选优，test 仅独立验收，严禁 test 回流。
+3. **Isolate before mutate / Archive before decide** — 候选隔离 worktree；manifest 固化前不判定。
+4. **Champion never regresses** — 失败候选不得修改冠军分支；禁止共享区破坏性 reset。
+5. **Machine facts over narrative** — 结构化指标与 Decision Engine 高于 LLM 自述。
+6. **Gate 0—6 不允许跳跃**；当前处于 G0_EVIDENCE_CLOSURE，`owner_approved=false`。
+
+> 详见 `.codebuddy/rules/sdd/01..04` 与 `.codebuddy/rules/sdd.md`。

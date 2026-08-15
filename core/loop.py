@@ -53,10 +53,15 @@ class ResearchLoop:
             milestone_max=config.get("memory", {}).get("milestone_max_chars", 1200),
             max_recent=config.get("memory", {}).get("max_recent_entries", 15),
         )
+        # A contract: carry the experiment budget (if configured) into the
+        # monitor so it can enforce hard_wall_clock_limit and classify runs.
+        from .experiment_contract import resolve_budget
+        self._budget_eff = resolve_budget(config.get("experiment", {}))
         self.monitor = ExperimentMonitor(
             poll_interval=config.get("monitor", {}).get("poll_interval", 900),
             zero_llm=config.get("monitor", {}).get("zero_llm", True),
             backend=self.execution_backend,
+            budget=self._budget_eff,
         )
         agent_config = config.get("agent", {}) or {}
         self.dispatcher = AgentDispatcher(
@@ -67,7 +72,18 @@ class ResearchLoop:
             api_key_env=agent_config.get("api_key_env", ""),
             auth_token_env=agent_config.get("auth_token_env", ""),
         )
-        self.tools = ToolRegistry(self.execution_backend)
+        self.tools = ToolRegistry(self.execution_backend, config=config)
+        self._experiment_cfg = config.get("experiment", {}) or {}
+        # A contract: validate config schema; violations are advisory warnings
+        # (never crash a cycle) but surface early for operators/QA.
+        if self._experiment_cfg:
+            try:
+                from .experiment_contract import validate_experiment_config
+                violations = validate_experiment_config(self._experiment_cfg)
+                for v in violations:
+                    logger.warning(f"experiment contract schema violation: {v}")
+            except Exception as exc:  # pragma: no cover - guard
+                logger.warning(f"experiment contract validation failed: {exc}")
         self.obsidian = ObsidianExporter(
             config=config,
             project_dir=self.project_dir,

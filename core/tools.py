@@ -11,6 +11,7 @@ import shlex
 from pathlib import Path
 
 from .execution import ExecutionBackend, normalize_relative_path
+from .experiment_contract import ProtectedWritePolicy
 
 logger = logging.getLogger("autoresearcher.tools")
 
@@ -28,9 +29,22 @@ class ToolRegistry:
     Fewer tools = fewer tokens in each API call = lower cost.
     """
 
-    def __init__(self, backend: ExecutionBackend):
+    def __init__(self, backend: ExecutionBackend, config: dict | None = None):
         self.backend = backend
         self._protected_files = {"state.json", "MEMORY_LOG.md", "PROJECT_BRIEF.md", ".lock"}
+        # D0: protected write boundary. Config keys (all optional, backwards compatible):
+        #   experiment.write_policy.allowlist / denylist_dirs / denylist_files
+        cfg = (config or {}).get("experiment", {}) or {}
+        wp = cfg.get("write_policy") or {}
+        self.write_policy = ProtectedWritePolicy(
+            allowlist=wp.get("allowlist"),
+            denylist_dirs=wp.get("denylist_dirs"),
+            denylist_files=wp.get("denylist_files"),
+            protected_hashes=wp.get("protected_hashes"),
+        )
+        # A: experiment budget contract (used by launch_experiment), legacy-safe.
+        from .experiment_contract import resolve_budget
+        self.budget = resolve_budget(cfg)
 
     def get_tools_for(self, agent_type: str) -> list[dict]:
         """Get tool definitions for a specific agent type."""
@@ -108,11 +122,15 @@ class ToolRegistry:
     def _tool_launch_experiment(self) -> dict:
         return {
             "name": "launch_experiment",
-            "description": "Launch a long-running experiment via nohup. Returns PID for monitoring. Use this for training runs, not run_shell.",
+            "description": (
+                "Launch a long-running training experiment via nohup. Returns PID for "
+                "monitoring. Use this for training runs, NOT run_shell (which rejects "
+                "shell operators and 'cd'). The command runs with the workspace as cwd."
+            ),
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "command": {"type": "string", "description": "Training command to run"},
+                    "command": {"type": "string", "description": "Training command (no shell operators)"},
                     "log_file": {"type": "string", "description": "Path for stdout/stderr log"},
                     "gpu": {"type": "string", "description": "CUDA_VISIBLE_DEVICES value"},
                 },
@@ -288,9 +306,30 @@ class ToolRegistry:
         return normalize_relative_path(path)
 
     def _parse_command(self, command: str) -> list[str]:
-        """Parse command text into argv without invoking a shell."""
+        """Parse command text into argv without invoking a shell.
+
+        Shell compound syntax (``&&``, ``;``, pipes, redirection, ``cd``) is
+        rejected up-front with an actionable hint: agents must use
+        ``launch_experiment`` for training and ``cd`` is not needed because
+        every command already runs with the workspace as its cwd. This closes
+        the failure seen when an agent passed ``cd x && python train.py``.
+        """
         if not command or not command.strip():
             raise ValueError("Command cannot be empty")
+
+        shell_ops = ("&&", "||", ";", "|", ">", "<", ">>", "2>")
+        for op in shell_ops:
+            if op in command:
+                raise ValueError(
+                    f"Shell operator '{op}' is not allowed in run_shell. "
+                    "Commands already run with the workspace as cwd; for "
+                    "training use launch_experiment instead of 'cd && python ...'."
+                )
+        if command.strip().startswith("cd "):
+            raise ValueError(
+                "'cd' is not needed (commands run in the workspace cwd). "
+                "For training use launch_experiment."
+            )
 
         try:
             argv = shlex.split(command)
@@ -314,6 +353,16 @@ class ToolRegistry:
         if Path(argv[0]).name in dangerous_bins:
             raise ValueError(f"Blocked executable: {argv[0]}")
 
+        # D0 / ADR-002: block destructive git subcommands outright. Read-only
+        # git (status/log/diff) stays allowed so agents can inspect state.
+        if Path(argv[0]).name == "git" and len(argv) > 1:
+            destructive = {"reset", "clean", "checkout", "revert", "merge", "rebase",
+                           "push", "fetch", "pull", "branch", "commit", "rm", "mv"}
+            if argv[1].lstrip("-") in destructive:
+                raise ValueError(
+                    f"Blocked destructive git subcommand: git {argv[1]}"
+                )
+
         return argv
 
     def _exec_run_shell(self, command: str, timeout: int = 120) -> str:
@@ -323,7 +372,8 @@ class ToolRegistry:
         return json.dumps(result)
 
     def _exec_launch_experiment(self, command: str, log_file: str, gpu: str = None) -> str:
-        """Launch experiment via nohup."""
+        """Launch experiment via nohup, annotating the result with the active
+        experiment-validity budget so monitor/reporting can stay consistent."""
         env = {}
         if gpu:
             env["CUDA_VISIBLE_DEVICES"] = gpu
@@ -334,13 +384,30 @@ class ToolRegistry:
             log_file=self._normalize_path(log_file),
             env=env,
         )
+        # A contract: attach budget facts (advisory; monitor is the enforcer).
+        result = dict(result)
+        result["experiment_budget"] = {
+            "mode": self.budget.get("mode"),
+            "limit": self.budget.get("limit"),
+            "hard_wall_clock_limit": self.budget.get("hard_wall_clock_limit"),
+            "enforced": self.budget.get("enforced"),
+        }
         return json.dumps(result)
 
     def _exec_write_file(self, path: str, content: str) -> str:
-        """Write file with protection check."""
+        """Write file with protection checks (D0)."""
         normalized = self._normalize_path(path)
         if normalized.split("/")[-1] in self._protected_files:
             return json.dumps({"error": f"Cannot overwrite protected file: {path}"})
+
+        # D0: allowlist/denylist boundary check.
+        allowed, reason = self.write_policy.allows_write(normalized)
+        if not allowed:
+            return json.dumps({
+                "error": f"Write blocked by protected write boundary: {reason}",
+                "hint": "You may only modify allowlisted files. Commit time-sliced "
+                        "code changes into the allowlisted train.py or workspace/.",
+            })
 
         result = self.backend.write_file(normalized, content)
         return json.dumps(result)

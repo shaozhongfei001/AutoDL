@@ -63,13 +63,40 @@ class ToolRegistrySecurityTests(unittest.TestCase):
         self.assertIn("error", result)
         self.assertIn("escapes workspace", result["error"])
 
-    def test_run_shell_does_not_execute_shell_injection_payload(self):
+    def test_run_shell_rejects_shell_operator_injection_payload(self):
+        # D0: shell operators (; && | > ...) are rejected outright so an
+        # injection payload can never reach a shell. The command returns an
+        # explicit error and nothing is executed.
         result = json.loads(
             self.registry.execute_tool("run_shell", {"command": "echo hello; touch injected.txt"})
         )
-        self.assertEqual(result["returncode"], 0)
-        self.assertIn("hello; touch injected.txt", result["stdout"])
+        self.assertIn("error", result)
+        self.assertIn("not allowed", result["error"])
         self.assertFalse((self.workspace / "injected.txt").exists())
+
+    def test_run_shell_rejects_cd_prefix(self):
+        # D0: `cd ... && ...` is the classic failure mode; cd is not needed
+        # because commands run with the workspace as cwd.
+        result = json.loads(
+            self.registry.execute_tool(
+                "run_shell", {"command": "cd /tmp && echo hi"}
+            )
+        )
+        self.assertIn("error", result)
+        self.assertFalse((self.workspace / "injected.txt").exists())
+
+    def test_run_shell_blocks_destructive_git(self):
+        result = json.loads(
+            self.registry.execute_tool("run_shell", {"command": "git reset --hard"})
+        )
+        self.assertIn("error", result)
+        self.assertIn("destructive git", result["error"])
+
+    def test_run_shell_allows_readonly_git(self):
+        result = json.loads(
+            self.registry.execute_tool("run_shell", {"command": "git status"})
+        )
+        self.assertIn("returncode", result)
 
     def test_run_shell_blocks_dangerous_binaries(self):
         result = json.loads(self.registry.execute_tool("run_shell", {"command": "rm -rf tmp"}))

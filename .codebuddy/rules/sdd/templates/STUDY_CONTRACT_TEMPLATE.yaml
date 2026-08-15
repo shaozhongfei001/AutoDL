@@ -1,0 +1,163 @@
+schema_version: "1.0"
+contract_type: "study"
+study_id: "<STUDY_ID>"
+study_version: "0.1"
+status: "DRAFT"
+project_id: "auto-deep-researcher-24x7"
+
+authority:
+  owner_approved: false
+  owner_decision_id: "<PENDING>"
+  baseline_commit: "<REPOSITORY_COMMIT_SHA>"
+  contract_hash: "<CALCULATED_AT_BASELINE>"
+
+research:
+  objective: "<RESEARCH_OBJECTIVE>"
+  hypothesis_domain: "<ALLOWED_EXPERIMENT_DOMAIN>"
+  success_definition: "<SUCCESS_DEFINITION>"
+  non_goals:
+    - "<NON_GOAL>"
+
+data:
+  dataset_name: "<DATASET_NAME>"
+  dataset_version: "<DATASET_VERSION>"
+  dataset_fingerprint: "<SHA256_OR_IMMUTABLE_ID>"
+  preprocessing:
+    entrypoint: "<PREPROCESS_ENTRYPOINT>"
+    fingerprint: "<SHA256>"
+  tokenizer:
+    applicable: false
+    identity: "<NOT_APPLICABLE_OR_TOKENIZER_ID>"
+    fingerprint: "<NOT_APPLICABLE_OR_SHA256>"
+  splits:
+    train:
+      identity: "<TRAIN_SPLIT_ID>"
+      fingerprint: "<SHA256>"
+      purpose: "model_fitting"
+    validation:
+      identity: "<VALIDATION_SPLIT_ID>"
+      fingerprint: "<SHA256>"
+      purpose: "iterative_selection"
+    test:
+      identity: "<TEST_SPLIT_ID>"
+      fingerprint: "<SHA256>"
+      purpose: "independent_acceptance_only"
+      access_policy: "gated_milestone_or_final_only"
+      feedback_to_iterative_agents: false
+
+evaluation:
+  primary_metric:
+    name: "<VALIDATION_METRIC_NAME>"
+    direction: "<maximize_or_minimize>"
+    unit: "<UNIT>"
+  secondary_metrics:
+    - name: "<SECONDARY_METRIC>"
+      direction: "<maximize_or_minimize>"
+      unit: "<UNIT>"
+  evaluator:
+    entrypoint: "<VALIDATION_EVALUATOR>"
+    fingerprint: "<SHA256>"
+  test_evaluator:
+    entrypoint: "<TEST_EVALUATOR>"
+    fingerprint: "<SHA256>"
+    result_visibility: "owner_and_qa_only"
+  statistics:
+    seeds: [17, 29, 43]
+    repeats: 3
+    aggregation: "mean_and_standard_deviation"
+    minimum_effect_size: "<VALUE>"
+    confidence_rule: "<RULE>"
+    baseline_noise_evidence: "<EVIDENCE_URI>"
+
+budget:
+  mode: "active_wall_clock_seconds"
+  limit: 300
+  hard_wall_clock_limit: 420
+  timer: "monotonic"
+  queue_time_in_budget: false
+  setup_time_in_budget: false
+  compile_time_in_budget: false
+  warmup_policy: "<POLICY>"
+  required_time_events:
+    - "queue_seconds"
+    - "setup_seconds"
+    - "compile_seconds"
+    - "warmup_seconds"
+    - "active_train_seconds"
+    - "evaluation_seconds"
+    - "total_wall_seconds"
+
+environment:
+  hardware_cohort_id: "<COHORT_ID>"
+  accelerator_model: "<GPU_MODEL>"
+  accelerator_count: 1
+  power_policy: "<FIXED_OR_RECORDED_POLICY>"
+  os: "<OS_VERSION>"
+  driver: "<DRIVER_VERSION>"
+  cuda: "<CUDA_VERSION>"
+  framework: "<FRAMEWORK_AND_VERSION>"
+  environment_lock: "<LOCKFILE_OR_IMAGE_DIGEST>"
+  comparability_requires_exact_cohort: true
+
+change_scope:
+  allowlist:
+    - "<ALLOWED_PATH>"
+  protected_boundaries:
+    - "<DATA_PATH>"
+    - "<VALIDATION_EVALUATOR_PATH>"
+    - "<TEST_EVALUATOR_PATH>"
+    - "<GOVERNANCE_SPEC_PATH>"
+    - "<TEST_ORACLE_PATH>"
+  max_changed_files: "<INTEGER>"
+  max_diff_lines: "<INTEGER>"
+  dependency_changes_allowed: false
+
+artifacts:
+  root: "<ARTIFACT_ROOT>"
+  manifest_required_before_decision: true
+  sha256_required: true
+  git_large_binaries_forbidden: true
+  retention_policy_id: "<RETENTION_POLICY_ID>"
+
+ledger:
+  path: "<APPEND_ONLY_LEDGER_PATH>"
+  schema_version: "1.0"
+  append_only: true
+  replay_required: true
+
+promotion:
+  champion_ref: "champion/<STUDY_ID>"
+  candidate_ref_pattern: "experiment/<EXPERIMENT_ID>"
+  isolated_worktree_required: true
+  fast_forward_only: true
+  stale_candidate_action: "replay_and_retest"
+  machine_verdict_required: true
+  llm_narrative_can_override: false
+  high_complexity_small_gain_action: "HUMAN_REVIEW"
+
+runtime:
+  max_parallel: 1
+  zero_llm_monitor: true
+  total_resource_quota: "<QUOTA>"
+  consecutive_failure_limit: "<INTEGER>"
+  repeated_hypothesis_limit: "<INTEGER>"
+  kill_switch: "<CONTROL>"
+  notification_policy: "<POLICY_ID>"
+
+approvals:
+  main_00:
+    status: "PENDING"
+    decision_id: "<PENDING>"
+  arch_01:
+    status: "PENDING"
+    decision_id: "<PENDING>"
+  sec_01:
+    status: "PENDING"
+    decision_id: "<PENDING>"
+  qa_01:
+    status: "PENDING"
+    decision_id: "<PENDING>"
+  human_owner:
+    status: "PENDING"
+    decision_id: "<PENDING>"
+

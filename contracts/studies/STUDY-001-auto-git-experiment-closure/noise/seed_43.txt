@@ -1,0 +1,4 @@
+validation_accuracy=0.9912
+validation_loss=0.0315
+test_accuracy=0.9875
+active_train_seconds=14.47

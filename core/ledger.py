@@ -43,6 +43,13 @@ class ExperimentLedger:
         log_file: str = "",
         conclusion: str = "",
         ts: Optional[float] = None,
+        # --- ADR-002 versioning (optional, backward compatible) ---
+        champion_before_sha: str = "",
+        candidate_sha: str = "",
+        champion_after_sha: str = "",
+        verdict: str = "",
+        promotion_status: str = "",
+        artifact_manifest_uri: str = "",
     ) -> Optional[dict]:
         """Append one cycle's outcome. Never raises — a logging failure must
         not crash the research loop."""
@@ -56,6 +63,13 @@ class ExperimentLedger:
             "pid": pid,
             "log_file": str(log_file or ""),
             "conclusion": str(conclusion or "")[:500],
+            # versioning fields (empty when the legacy path is used)
+            "champion_before_sha": str(champion_before_sha or ""),
+            "candidate_sha": str(candidate_sha or ""),
+            "champion_after_sha": str(champion_after_sha or ""),
+            "verdict": str(verdict or ""),
+            "promotion_status": str(promotion_status or ""),
+            "artifact_manifest_uri": str(artifact_manifest_uri or ""),
         }
         try:
             with open(self.path, "a", encoding="utf-8") as handle:
@@ -64,6 +78,40 @@ class ExperimentLedger:
             logger.warning(f"Failed to append to experiment ledger: {exc}")
             return None
         return entry
+
+    def record_verdict(
+        self,
+        *,
+        cycle: int,
+        experiment_id: str = "",
+        metrics: Optional[dict] = None,
+        verdict: str = "",
+        champion_before_sha: str = "",
+        candidate_sha: str = "",
+        champion_after_sha: str = "",
+        promotion_status: str = "",
+        artifact_manifest_uri: str = "",
+        reason: str = "",
+    ) -> Optional[dict]:
+        """Append a promotion verdict event to the ledger (append-only).
+
+        ``verdict`` is one of KEEP / DISCARD / CRASH / INCOMPARABLE. The
+        machine decision is authoritative; ``reason`` may carry the numeric
+        basis so it is auditable without an LLM.
+        """
+        return self.record(
+            cycle=cycle,
+            action=f"verdict:{experiment_id}",
+            status=f"verdict_{verdict.lower()}" if verdict else "verdict",
+            metrics=metrics,
+            conclusion=f"{verdict}: {reason}".strip(),
+            champion_before_sha=champion_before_sha,
+            candidate_sha=candidate_sha,
+            champion_after_sha=champion_after_sha,
+            verdict=verdict,
+            promotion_status=promotion_status,
+            artifact_manifest_uri=artifact_manifest_uri,
+        )
 
     def all(self) -> list[dict]:
         """Return every well-formed entry; malformed lines are skipped."""

@@ -1,0 +1,204 @@
+schema_version: "1.0"
+contract_type: "study"
+study_id: "STUDY-001-auto-git-experiment-closure"
+study_version: "0.2"
+status: "APPROVED_BY_OWNER"
+project_id: "auto-deep-researcher-24x7"
+
+authority:
+  owner_approved: true
+  owner_decision_id: "OWNER-APPROVAL-20260815-01"
+  owner_approval_source: "HUMAN_OWNER via conversation 2026-08-15"
+  baseline_commit: "1331cfcec07ea673f0c1b540e1f9b9f0d667bebe"
+  contract_hash: "<CALCULATED_AT_IMPLEMENTATION>"
+
+research:
+  objective: >-
+    验证为 AutoDL 引入"实验有效性合同 + 事务隔离晋级 + 受保护写入边界"后，
+    Agent 自动实验搜索能在固定预算与公平比较下产出可审计的模型改进，
+    且不引入 test 集自适应过拟合。本研究本身不是"提升 MNIST 精度"，
+    而是验证治理机制的可执行性与安全性（机制研究，pilot study）。
+  hypothesis_domain: >-
+    CNN 结构微调（通道数/卷积层数/激活/Dropout/BN/LR 计划），仅限 MNIST。
+    允许修改项目根 train.py；禁止修改评估器、数据、config schema、测试 oracles。
+  success_definition: >-
+    1) 至少 3 个候选实验在同一 hardware cohort + 同一预算模式下公平执行；
+    2) 每个候选均有完整 Artifact Manifest（SHA256）且可复现；
+    3) 晋级路径为 fast-forward-only、champion 不回退；
+    4) validation 用于逐轮选优、test 仅独立验收且不回流；
+    5) 选优后 champion 的独立 test 验收 ≥ 基线（差异≥min_effect_size 且不劣于噪声）。
+  non_goals:
+    - "不使用 test 集做逐轮选优或作为任何 Agent 反馈"
+    - "不追求脱离预算约束的绝对最高 MNIST 精度"
+    - "不改动评估器/数据指纹/权威 config 以迎合结果"
+    - "不在共享工作区做破坏性 git reset / 覆盖他人修改"
+
+data:
+  dataset_name: "MNIST"
+  dataset_version: "official-idx-ubyte-raw"
+  dataset_fingerprint: >-
+    ba891046e6505d7aadcbbe25680a0738ad16aec93bde7f9b65e87a2fc25776db(images)
+    65a50cbbf4e906d70832878ad85ccda5333a97f0f4c3dd2ef09a8a9eef7101c5(labels)
+    0fa7898d509279e482958e8ce81c8e77db3f2f8254e26661ceb7762c4d494ce7(t10k-images)
+    ff7bcfd416de33731a308c3f266cc351222c34898ecbeaf847f06e48f7ec33f2(t10k-labels)
+  preprocessing:
+    entrypoint: "examples/mnist_gpu/train.py" # 内置 torchvision 转换（28x28, normalize）
+    fingerprint: "N/A-standard-torchvision-transform"
+  tokenizer:
+    applicable: false
+    identity: "N/A"
+    fingerprint: "N/A"
+  splits:
+    train:
+      identity: "MNIST-train(60000)"
+      fingerprint: "ba891046..db / 65a50cbb..c5"
+      purpose: "model_fitting"
+    validation:
+      identity: "MNIST-train-derived-holdout(5000)"
+      fingerprint: "derived-from-train-split-bya-fixed-seed"
+      purpose: "iterative_selection"
+    test:
+      identity: "MNIST-t10k(10000)"
+      fingerprint: "0fa7898d..e7 / ff7bcfd4..f2"
+      purpose: "independent_acceptance_only"
+      access_policy: "gated_milestone_or_final_only"
+      feedback_to_iterative_agents: false
+
+evaluation:
+  primary_metric:
+    name: "validation_accuracy"
+    direction: "maximize"
+    unit: "percentage_point"
+  secondary_metrics:
+    - name: "validation_loss"
+      direction: "minimize"
+      unit: "nats"
+    - name: "train_accuracy"
+      direction: "maximize"
+      unit: "percentage_point"
+    - name: "active_train_seconds"
+      direction: "minimize"
+      unit: "seconds"
+  evaluator:
+    entrypoint: "examples/mnist_gpu/train.py --seed <s>" # 单次运行同时输出 validation_accuracy + test_accuracy
+    fingerprint: "FIXED-SPLIT-SEED=20260815"
+    note: >-
+      受控基线脚本一次训练即输出 validation(选优) 与 test(验收) 双指标。
+      validation_accuracy 供逐轮选优；test_accuracy 的消费由框架访问控制与
+      QA Gate 保证（result_visibility: owner_and_qa_only），不回流逐轮 Agent。
+  test_evaluator:
+    entrypoint: "examples/mnist_gpu/train.py --seed <s>" # test 指标取自同次运行输出
+    fingerprint: "official-t10k-only"
+    result_visibility: "owner_and_qa_only"
+    note: "test_accuracy 仅由 Owner/QA 读取，作为独立验收；逐轮 Agent 不可见。"
+  statistics:
+    seeds: [17, 29, 43]
+    repeats: 3
+    aggregation: "mean_and_standard_deviation"
+    minimum_effect_size: "0.5_pp"
+    confidence_rule: "difference_must_exceed_2x_pooled_std"
+    baseline_noise_evidence: >-
+      baseline-noise-study-20260815: validation_accuracy over seeds [17,29,43]
+      = {0.9878, 0.9884, 0.9912}, mean=0.9891, std=0.18pp; test_accuracy =
+      {0.9889, 0.9877, 0.9875}, mean=0.9880, std=0.08pp; active_train_seconds
+      = {14.35, 14.27, 14.47} (mean 14.4s, well within 300s budget).
+      2x_pooled_std = 0.36pp. minimum_effect_size 0.5pp > 0.36pp (validated,
+      margin 0.14pp). seeds_values_match_contract: true
+
+budget:
+  mode: "active_wall_clock_seconds"
+  limit: 300
+  hard_wall_clock_limit: 420
+  timer: "monotonic"
+  queue_time_in_budget: false
+  setup_time_in_budget: false
+  compile_time_in_budget: false
+  warmup_policy: "exclude-first-2-epochs-from-timer"
+  required_time_events:
+    - "queue_seconds"
+    - "setup_seconds"
+    - "compile_seconds"
+    - "warmup_seconds"
+    - "active_train_seconds"
+    - "evaluation_seconds"
+    - "total_wall_seconds"
+
+environment:
+  hardware_cohort_id: "COHORT-RTX3060L-6G"
+  accelerator_model: "NVIDIA GeForce RTX 3060 Laptop GPU"
+  accelerator_count: 1
+  power_policy: "RECORDED_POWER_MODE" # 笔记本默认，记录但不定频
+  os: "Ubuntu 22.04.4 LTS"
+  driver: "555.42.02"
+  cuda: "12.5 (driver) / 12.4 (runtime)"
+  framework: "torch 2.5.0+cu124, torchvision 0.20.0+cu124, python 3.10.12"
+  environment_lock: ".venv-20260815-snapshot" # venv 快照待归档
+  comparability_requires_exact_cohort: true
+
+change_scope:
+  allowlist:
+    - "examples/mnist_gpu/train.py"
+    - "workspace/"                 # 候选实验产物区（候选 worktree）
+  protected_boundaries:
+    - "examples/mnist_gpu/data/"   # 数据只读
+    - ".codebuddy/rules/sdd/"      # 治理契约只读
+    - "contracts/"                 # 已批准合同只读
+    - "tests/"                     # 测试 oracle 只读
+    - "core/monitor.py"            # 评估器/指标解析只读（本期）
+  max_changed_files: "1_allowlisted_train_py_per_candidate"
+  max_diff_lines: "200"
+  dependency_changes_allowed: false
+
+artifacts:
+  root: "artifacts/STUDY-001/"
+  manifest_required_before_decision: true
+  sha256_required: true
+  git_large_binaries_forbidden: true
+  retention_policy_id: "RET-P1-STUDY-001-keep-all-candidates-30d"
+
+ledger:
+  path: "contracts/studies/STUDY-001/ledger.jsonl"
+  schema_version: "1.0"
+  append_only: true
+  replay_required: true
+
+promotion:
+  champion_ref: "champion/STUDY-001"
+  candidate_ref_pattern: "experiment/STUDY-001-<EXPERIMENT_ID>"
+  isolated_worktree_required: true
+  fast_forward_only: true
+  stale_candidate_action: "replay_and_retest"
+  machine_verdict_required: true
+  llm_narrative_can_override: false
+  high_complexity_small_gain_action: "HUMAN_REVIEW"
+
+runtime:
+  max_parallel: 1
+  zero_llm_monitor: true
+  total_resource_quota: "1xRTX3060L,<2h_cumulative_training"
+  consecutive_failure_limit: 3
+  repeated_hypothesis_limit: 2
+  kill_switch: "contracts/studies/STUDY-001/.kill"
+  notification_policy: "POLICY-STUDY-001-notify-on-verdict"
+
+approvals:
+  main_00:
+    status: "APPROVED"            # 契约起草方自审通过（状态机推进前置）
+    decision_id: "MAIN00-DESIGN-20260815"
+    note: "设计阶段自审；实施阶段仍需 QA 复核"
+  arch_01:
+    status: "PENDING_REVIEW"
+    decision_id: "<PENDING>"
+    note: "待 ARCH-01 架构评审（实施前完成）"
+  sec_01:
+    status: "PENDING_REVIEW"
+    decision_id: "<PENDING>"
+    note: "待 SEC-01 安全评审：受保护边界/破坏性 git 禁用"
+  qa_01:
+    status: "PENDING_REVIEW"
+    decision_id: "<PENDING>"
+    note: "待 QA-01 独立 Gate 1/Gate 2"
+  human_owner:
+    status: "APPROVED"
+    decision_id: "OWNER-APPROVAL-20260815-01"
+    owner_approval_source: "HUMAN_OWNER via conversation 2026-08-15"

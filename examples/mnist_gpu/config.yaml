@@ -28,3 +28,39 @@ experiment:
   mandatory_dry_run: true
   max_parallel: 1
   log_tail_lines: 40
+  # --- Experiment Validity Contract (SDD ADR-001 / STUDY-001) ---
+  budget:
+    mode: "active_wall_clock_seconds"
+    limit: 300              # active_train_seconds budget (excludes setup/eval)
+    hard_wall_clock_limit: 420  # hard cap; monitor kills runs past this
+    timer: "monotonic"
+  evaluation:
+    primary_metric:
+      name: "validation_accuracy"
+      direction: "maximize"
+      unit: "pp"
+    validation_metrics: ["validation_accuracy", "validation_loss"]
+    test_metrics: ["test_accuracy", "test_loss"]
+    minimum_effect_size: 0.005
+  comparability:
+    hardware_cohort_id: "COHORT-RTX3060L-6G"
+    requires_exact_cohort: true
+    data_fingerprint: "MNIST-official-idx-ubyte-raw"
+    evaluator_fingerprint: "FIXED-SPLIT-SEED=20260815"
+  # --- Protected Write Boundary (SDD D0 / ADR-002) ---
+  write_policy:
+    allowlist: []   # empty => denylist-only (default); set to narrow for strict worktree
+    denylist_dirs:
+      - "data/"
+      - ".codebuddy/"
+      - "contracts/"
+      - "tests/"
+      - "artifacts/"
+    denylist_files:
+      - "config.yaml"
+      - "core/monitor.py"
+      - "core/ledger.py"
+      - "core/experiment_contract.py"
+      - "PROJECT_BRIEF.md"
+      - "state.json"
+      - "MEMORY_LOG.md"

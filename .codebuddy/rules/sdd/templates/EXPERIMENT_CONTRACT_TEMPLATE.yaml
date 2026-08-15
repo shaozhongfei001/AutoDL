@@ -1,0 +1,79 @@
+schema_version: "1.0"
+contract_type: "experiment"
+experiment_id: "<EXPERIMENT_ID>"
+study_id: "<STUDY_ID>"
+study_contract_hash: "<SHA256>"
+status: "PROPOSED"
+
+identity:
+  cycle: "<INTEGER>"
+  created_at: "<ISO8601>"
+  created_by: "<LEADER_AGENT_ID>"
+  champion_before_sha: "<GIT_SHA>"
+  candidate_branch: "experiment/<EXPERIMENT_ID>"
+  worktree: "<ISOLATED_WORKTREE_PATH>"
+
+hypothesis:
+  statement: "<TESTABLE_HYPOTHESIS>"
+  expected_mechanism: "<WHY_THIS_SHOULD_WORK>"
+  expected_primary_metric_effect: "<EXPECTED_EFFECT>"
+  falsification_condition: "<WHEN_TO_REJECT>"
+  prior_dead_end_refs: []
+
+change:
+  requested_paths:
+    - "<PATH_WITHIN_STUDY_ALLOWLIST>"
+  files_expected:
+    - "<FILE>"
+  dependency_change: false
+  risk_level: "<LOW_MEDIUM_HIGH>"
+  rollback: "discard_candidate_without_changing_champion"
+
+contracts:
+  budget_contract_hash: "<SHA256>"
+  evaluation_contract_hash: "<SHA256>"
+  data_contract_hash: "<SHA256>"
+  environment_contract_hash: "<SHA256>"
+  promotion_policy_version: "<POLICY_VERSION>"
+  tool_policy_hash: "<SHA256>"
+
+execution:
+  backend: "<local_ssh_slurm>"
+  hardware_cohort_id: "<COHORT_ID>"
+  seeds: [17, 29, 43]
+  repeats: 3
+  validation_only_during_iteration: true
+  test_access_allowed: false
+
+complexity:
+  expected_changed_files: "<INTEGER>"
+  expected_added_lines: "<INTEGER>"
+  expected_deleted_lines: "<INTEGER>"
+  expected_parameter_delta: "<VALUE_OR_UNKNOWN>"
+  expected_vram_delta: "<VALUE_OR_UNKNOWN>"
+  human_review_threshold_triggered: false
+
+preflight:
+  contract_validated: false
+  worktree_isolated: false
+  champion_parent_verified: false
+  protected_boundaries_verified: false
+  dry_run_passed: false
+  secret_scan_passed: false
+
+result:
+  terminal_state: "<PENDING>"
+  candidate_sha: "<PENDING>"
+  validation_metrics_uri: "<PENDING>"
+  artifact_manifest_uri: "<PENDING>"
+  artifact_manifest_sha256: "<PENDING>"
+  verdict: "<PENDING>"
+  verdict_reason: "<PENDING>"
+  promotion_status: "<PENDING>"
+  champion_after_sha: "<PENDING>"
+
+approvals:
+  contract_owner: "<ARCH_01_OR_DELEGATE>"
+  status: "PENDING"
+  approval_event_id: "<PENDING>"
+

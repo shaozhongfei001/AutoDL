@@ -1,0 +1,78 @@
+schema_version: "1.0"
+package_id: "ADR24X7-SDD-GOVERNANCE-V0.1"
+project_id: "auto-deep-researcher-24x7"
+package_status: "CONTRACT_CANDIDATE"
+authoritative_entry: "00_README.md"
+baseline_input:
+  review_report: "AutoResearch_机制对比与改造方案_独立评审报告_V1.0_20260814.md"
+  review_gate: "CONDITIONAL_PASS_FOR_DESIGN"
+  implementation_gate: "BLOCKED"
+authority:
+  owner_approved: true
+  owner_decision_id: "OWNER-APPROVAL-20260815-01"
+  owner_approval_source: "HUMAN_OWNER via conversation 2026-08-15"
+  implementation_authorized: true    # 阶段1+2（A 合同 + D0）已实施并经 QA Gate 2
+  implementation_decision_id: "OWNER-IMPLEMENT-20260815-01"
+  pilot_authorized: false
+  unattended_24x7_authorized: false
+  production_ready: false
+  frozen: false
+current_gate: "G2_IMPLEMENTATION_QA_PASS"
+current_phase: "PILOT_PENDING"
+max_parallel_for_first_pilot: 1
+phase12_implementation:
+  adr_001_implemented: true
+  adr_002_d0_implemented: true
+  adr_002_transaction_promotion_implemented: false  # 后续阶段
+  qa_gate2_report: "contracts/studies/STUDY-001-auto-git-experiment-closure/qa/GATE2_REPORT.md"
+  tests_pass: 158
+  new_tests: "tests/test_experiment_contract.py (28) + test_tools_security.py (2 updated)"
+  changed_core:
+    - "core/experiment_contract.py (new)"
+    - "core/loop.py"
+    - "core/monitor.py"
+    - "core/tools.py"
+  pilot_config: "examples/mnist_gpu/config.yaml"
+completed_g0_artifacts:
+  evidence_closure:
+    path: "docs/phase0_evidence_closure_response.md"
+    result: "P0-1 已确认 / P0-2 已确认 / test 回流风险已确认"
+  study_contract:
+    path: "contracts/studies/STUDY-001-auto-git-experiment-closure/STUDY_CONTRACT.yaml"
+    study_id: "STUDY-001-auto-git-experiment-closure"
+    status: "DRAFT"
+  adr_001:
+    path: "contracts/studies/STUDY-001-auto-git-experiment-closure/ADR-001-experiment-validity-contract.md"
+    status: "DRAFT"
+  adr_002:
+    path: "contracts/studies/STUDY-001-auto-git-experiment-closure/ADR-002-transactional-isolation-promotion.md"
+    status: "DRAFT"
+  qa_plan:
+    path: "contracts/studies/STUDY-001-auto-git-experiment-closure/QA_GATE_PLAN.md"
+    status: "DRAFT"
+  governance_scaffold:
+    path: ".codebuddy/rules/sdd.md"
+    note: "SDD 治理包已按 CodeBuddy rules 脚手架放置于 .codebuddy/rules/sdd/"
+note: >-
+  本轮（G0 允许动作）仅完成证据闭合包、Study Contract、P0 概要 ADR、QA 计划、
+  以及 SDD 治理脚手架放置。所有权、实施、试点、24x7 授权仍全部为 false；
+  未经 HUMAN_OWNER 批准不实施任何 core/ 代码改造。
+p0_contracts:
+  - id: "P0-EXP-VALIDITY"
+    name: "实验有效性合同"
+    status: "CANDIDATE"
+  - id: "P0-EXP-TRANSACTION"
+    name: "候选实验事务隔离与安全晋级合同"
+    status: "CANDIDATE"
+blocked_actions:
+  - "修改受保护评估、数据或治理边界"
+  - "在共享工作区执行破坏性 Git 回退"
+  - "使用测试集逐轮选优"
+  - "未归档制品即作出 KEEP/DISCARD"
+  - "未通过 Gate 6 即开启无人值守自动晋级"
+next_required_outputs:
+  - "Gate 0 全仓证据闭合包"
+  - "首个 Study Contract"
+  - "P0 概要设计与 ADR"
+  - "独立 QA Gate 1/Gate 2 报告"
+
