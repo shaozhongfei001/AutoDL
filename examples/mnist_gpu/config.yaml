@@ -10,7 +10,7 @@ agent:
   model: "deepseek-chat"
   base_url: "https://api.deepseek.com"
   api_key_env: "DSEEK_2026_SZF_KEY"
-  max_cycles: 1
+  max_cycles: -1   # unlimited rounds for unattended multi-round CNN search
   max_steps_per_cycle: 8
   cooldown_interval: 30
 
@@ -64,3 +64,10 @@ experiment:
       - "PROJECT_BRIEF.md"
       - "state.json"
       - "MEMORY_LOG.md"
+  # --- Loop Engineering (SDD 05) ---
+  loop_engineering:
+    enabled: true          # enable machine-judgment loop (M2) + unattended promotion
+    dedup:
+      enabled: true        # M5: reject repeated hypotheses across rounds
+      repeated_hypothesis_limit: 1
+    noise_std: 0.0018      # measured baseline noise (seed std); effective bar = max(eval.min_effect_size, 2*noise_std)

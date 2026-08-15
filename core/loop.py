@@ -396,12 +396,16 @@ class ResearchLoop:
         if metrics:
             try:
                 from .experiment_contract import decide_verdict, gate_verdict_by_contract_status
+                # P3: pass measured noise so the effective bar is raised above
+                # measurement noise (effective = max(config, 2*noise_std)).
+                noise_std = self._le_cfg.get("noise_std", 0.0)
                 raw = decide_verdict(
                     candidate_metrics=metrics,
                     champion_metrics=champion_metrics,
                     primary_metric=self._primary_metric,
                     direction=self._primary_direction,
                     minimum_effect_size=self._min_effect_size,
+                    noise_std=noise_std,
                 )
                 # Hard-gate by contract status: a crashed/timed-out/budget-killed
                 # run is never KEEP even if metrics happen to look good.

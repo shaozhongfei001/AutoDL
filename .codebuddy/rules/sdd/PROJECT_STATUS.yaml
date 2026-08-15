@@ -13,7 +13,9 @@ authority:
   owner_approval_source: "HUMAN_OWNER via conversation 2026-08-15"
   implementation_authorized: true    # 阶段1+2（A 合同 + D0）已实施并经 QA Gate 2
   implementation_decision_id: "OWNER-IMPLEMENT-20260815-01"
-  pilot_authorized: false
+  pilot_authorized: true
+  pilot_decision_id: "OWNER-PILOT-20260815-01"
+  pilot_target: "mnist_gpu: fixed-budget CNN improvement search with machine-judgment promotion"
   unattended_24x7_authorized: false
   production_ready: false
   frozen: false

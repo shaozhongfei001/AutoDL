@@ -57,32 +57,45 @@ IMPORTANT:
 - save the model to `./model.pt`.
 
 ## What to Try (IMPORTANT)
-1. Ensure `train.py` satisfies the contract above. If the allowlisted
-   `train.py` already does, reuse it.
-2. **MUST launch a real GPU training run via the framework's
+Run a **multi-round automatic CNN improvement search**. In EACH round:
+
+1. Ensure `train.py` satisfies the contract above. Start from the allowlisted
+   `train.py` as the initial champion.
+2. **Evolve ONE CNN variant per round** (e.g. change channels/conv layers/
+   activation/Dropout/BN/lr schedule). Do not change the evaluator, data, or
+   config schema.
+3. **MUST launch a real GPU training run via the framework's
    `launch_experiment` tool** so the monitor tracks its PID and log file.
    Do NOT skip training or fake the result. Do NOT use `run_shell` for `cd && python`
    (it is blocked; `launch_experiment` runs in the workspace cwd).
-3. Let the monitor observe the run; report `validation_accuracy` (selection)
+4. Let the monitor observe the run; report `validation_accuracy` (selection)
    and `test_accuracy` (acceptance).
+5. The machine-judgment loop decides KEEP (improved, promoted to champion) or
+   DISCARD (not improved / crashed / over-budget). Then propose a NEW hypothesis
+   for the next round — keep improving the champion, do not repeat the same idea.
 
 ## Constraints
 - Use GPU 0 only (`CUDA_VISIBLE_DEVICES=0`).
-- Budget: `active_train_seconds` <= 300s; hard cap 420s. Keep runs within budget.
+- Budget: `active_train_seconds` <= 300s; hard cap 420s. Keep each run within budget.
 - Keep the model small (fits in 6GB easily).
 - **Do NOT write to denylisted paths** (data/, .codebuddy/, contracts/, tests/,
   artifacts/, config.yaml, core/…). You may only modify allowlisted files
   (train.py, workspace/).
 - **Do NOT run destructive git commands** (reset/clean/checkout/revert/…).
+- **Do NOT repeat the same CNN variant** (hypothesis de-duplication is on).
 
 ## Current Status
-Fresh pilot start for STUDY-001 (SDD governance). No candidate experiment has
-run under the new experiment-validity contract yet. The goal is to run the
-first budget-constrained candidate and record its validation/test metrics.
+Multi-round automatic CNN improvement search on MNIST under a fixed 300s
+active-train budget, driven by machine judgment (validation for selection,
+test only for acceptance). The initial champion is the allowlisted `train.py`.
+Run as many rounds as the budget/cycles allow, promoting only machine-verified
+improvements.
 
 ## Success Criteria
-- A candidate run is launched via `launch_experiment` and monitored (PID captured).
-- Run stays within the 300s active-train budget.
-- `validation_accuracy` reported for selection and `test_accuracy >= 97%` for
-  acceptance.
+- At least 2-3 distinct CNN variants are run across rounds (no repeats).
+- Each run is launched via `launch_experiment` and monitored (PID captured).
+- Each run stays within the 300s active-train budget.
+- Machine judgment promotes real improvements (validation_accuracy increase
+  above noise) and discards worse/crashed/over-budget runs.
+- `test_accuracy` of the final champion `>= 97%` for independent acceptance.
 - No protected/denylisted file was modified (D0 boundary respected).
