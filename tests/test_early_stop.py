@@ -68,6 +68,21 @@ class InRunEarlyStopMetricTests(unittest.TestCase):
         lines = ["validation_accuracy=0.90", "validation_accuracy=0.90"]
         self.assertFalse(mon._check_in_run_early_stop(999, lines))
 
+    def test_lower_better_loss_plateau(self):
+        # loss descending then flat -> early stop on the flat tail.
+        mon = self._mon(direction="lower_better", metric="validation_loss",
+                        patience=2, min_epochs=3)
+        lines = ["validation_loss=1.20", "validation_loss=0.80",
+                 "validation_loss=0.80"]
+        self.assertTrue(mon._check_in_run_early_stop(999, lines))
+
+    def test_lower_better_still_dropping_no_stop(self):
+        mon = self._mon(direction="lower_better", metric="validation_loss",
+                        patience=2, min_epochs=3)
+        lines = ["validation_loss=1.50", "validation_loss=0.80",
+                 "validation_loss=0.40"]
+        self.assertFalse(mon._check_in_run_early_stop(999, lines))
+
 
 class InRunEarlyStopEndToEndTests(unittest.TestCase):
     """A real training subprocess is early-terminated once it plateaus."""

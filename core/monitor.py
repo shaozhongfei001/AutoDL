@@ -56,6 +56,10 @@ class ExperimentMonitor:
         self.early_stop_tol = float(es.get("improvement_tol", 1e-4))
         self.early_stop_min_epochs = int(es.get("min_epochs", 5))
         self.early_stop_metric = str(es.get("metric", "validation_accuracy"))
+        # Direction of the early-stop metric: "higher_better" (accuracy) or
+        # "lower_better" (loss). Dictates how "improvement" and "plateau" are
+        # judged. Default higher_better preserves legacy behavior.
+        self.early_stop_direction = str(es.get("direction", "higher_better"))
         self._early_stopped = False
 
     def _extract_epoch_metrics(self, log_lines: list[str], metric: str) -> list[float]:
@@ -113,13 +117,19 @@ class ExperimentMonitor:
         seq = self._extract_epoch_metrics(log_lines, self.early_stop_metric)
         if len(seq) < self.early_stop_min_epochs:
             return False
-        best = max(seq)
-        # Plateau: the most recent `patience` epochs have all stayed within the
-        # tolerance of the running best (no further improvement for patience
-        # consecutive epochs), counting the current (last) epoch too.
+        lower_better = self.early_stop_direction == "lower_better"
+        best = min(seq) if lower_better else max(seq)
+        # Plateau: the most recent `patience` epochs have all failed to improve
+        # on the running best beyond the tolerance (counting the current epoch).
+        #   higher_better: value stays within [best - tol, ...]  (no new best)
+        #   lower_better:  value stays within [..., best + tol]  (loss not dropping)
         sustained = 0
         for v in reversed(seq):
-            if v >= best - self.early_stop_tol:
+            if lower_better:
+                plateau = v <= best + self.early_stop_tol
+            else:
+                plateau = v >= best - self.early_stop_tol
+            if plateau:
                 sustained += 1
             else:
                 break

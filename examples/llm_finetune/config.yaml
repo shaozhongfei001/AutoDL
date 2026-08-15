@@ -1,0 +1,85 @@
+# LLM Fine-tuning experiment config — Qwen2.5-0.5B full fine-tune on alpaca.
+# Smallest practical LLM for a 6GB GPU (RTX 3060 Laptop): ~500M params, full
+# fine-tune uses ~2.5-3GB VRAM.
+project:
+  name: "llm-finetune"
+  brief: "PROJECT_BRIEF.md"
+  workspace: "workspace"
+
+agent:
+  provider: "openai"
+  model: "deepseek-chat"
+  base_url: "https://api.deepseek.com"
+  api_key_env: "DSEEK_2026_SZF_KEY"
+  max_cycles: -1
+  max_steps_per_cycle: 8
+  cooldown_interval: 30
+
+monitor:
+  poll_interval: 5
+  zero_llm: true
+  notify_on_complete: true
+
+gpu:
+  auto_detect: true
+  reserve_last: false
+
+experiment:
+  mandatory_dry_run: true
+  max_parallel: 1
+  log_tail_lines: 40
+  budget:
+    mode: "active_wall_clock_seconds"
+    limit: 1500             # LLM fine-tune is slower than MNIST; ~25min active
+    hard_wall_clock_limit: 2100  # hard cap; monitor kills runs past this
+    timer: "monotonic"
+    # In-run early stop on validation_loss: loss dropping means improving; stop
+    # once it has plateaued for `patience` epochs. direction=lower_better because
+    # a smaller loss is better (unlike accuracy).
+    early_stop:
+      enabled: true
+      metric: "validation_loss"
+      direction: "lower_better"
+      patience: 2            # plateau for N consecutive epochs -> early stop
+      improvement_tol: 0.01  # "no improvement" band on loss
+      min_epochs: 3          # never stop before N epochs observed
+  evaluation:
+    primary_metric:
+      name: "validation_loss"
+      direction: "minimize"
+      unit: "loss"
+    validation_metrics: ["validation_loss", "train_loss"]
+    test_metrics: ["test_loss"]
+    minimum_effect_size: 0.05
+  comparability:
+    hardware_cohort_id: "COHORT-RTX3060L-6G"
+    requires_exact_cohort: true
+    data_fingerprint: "alpaca-cleaned-subset-500"
+    evaluator_fingerprint: "FIXED-SPLIT-SEED=20260815"
+  write_policy:
+    allowlist: []
+    denylist_dirs:
+      - "data/"
+      - ".codebuddy/"
+      - "contracts/"
+      - "tests/"
+      - "artifacts/"
+    denylist_files:
+      - "config.yaml"
+      - "core/monitor.py"
+      - "core/ledger.py"
+      - "core/experiment_contract.py"
+      - "PROJECT_BRIEF.md"
+      - "state.json"
+      - "MEMORY_LOG.md"
+  loop_engineering:
+    enabled: true
+    dedup:
+      enabled: true
+      repeated_hypothesis_limit: 1
+    noise_std: 0.02         # measured val-loss noise across seeds
+    early_stop:
+      enabled: true
+      saturation_rounds: 3
+      plateau_band: 2.0
+      max_consecutive_no_experiment: 3
