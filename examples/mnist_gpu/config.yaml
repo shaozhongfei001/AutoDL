@@ -34,6 +34,15 @@ experiment:
     limit: 300              # active_train_seconds budget (excludes setup/eval)
     hard_wall_clock_limit: 420  # hard cap; monitor kills runs past this
     timer: "monotonic"
+    # In-run early stop (train-level): parse per-epoch validation from the live
+    # log and terminate the run once it has plateaued for `patience` epochs, so
+    # GPU is not wasted on epochs that cannot improve. 0/empty disables.
+    early_stop:
+      enabled: true
+      metric: "validation_accuracy"
+      patience: 2            # plateau for N consecutive epochs -> early stop
+      improvement_tol: 0.001 # "no improvement" band (match ~MNIST val noise ±0.002)
+      min_epochs: 3          # never stop before N epochs observed
   evaluation:
     primary_metric:
       name: "validation_accuracy"
@@ -71,3 +80,11 @@ experiment:
       enabled: true        # M5: reject repeated hypotheses across rounds
       repeated_hypothesis_limit: 1
     noise_std: 0.0018      # measured baseline noise (seed std); effective bar = max(eval.min_effect_size, 2*noise_std)
+    # Active loop-level early stop: detect saturation from machine verdicts and
+    # leader stagnation so the unattended loop converges on its own instead of
+    # cycling forever until a human kills the process.
+    early_stop:
+      enabled: true
+      saturation_rounds: 3          # N consecutive DISCARD within noise band -> saturated
+      plateau_band: 2.0             # |delta| <= plateau_band*noise_std counts as plateau
+      max_consecutive_no_experiment: 3  # leader launches no experiment for N rounds -> stop

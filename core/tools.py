@@ -45,6 +45,12 @@ class ToolRegistry:
         # A: experiment budget contract (used by launch_experiment), legacy-safe.
         from .experiment_contract import resolve_budget
         self.budget = resolve_budget(cfg)
+        # D: session-level error bookkeeping. Counts tool failures per error
+        # class so the dispatcher can inject an escalation prompt before the
+        # worker repeats the same mistake indefinitely (the run_shell / empty
+        # metric failure loops). Resets on a successful tool call of the same
+        # name.
+        self._error_counts: dict[str, int] = {}
 
     def get_tools_for(self, agent_type: str) -> list[dict]:
         """Get tool definitions for a specific agent type."""
@@ -96,10 +102,52 @@ class ToolRegistry:
             return json.dumps({"error": f"Unknown tool: {name}"})
 
         try:
-            return handler(**args)
+            output = handler(**args)
+            # D: a non-error result resets that tool's error streak. The worker
+            # learned the correct usage; stop escalating this tool.
+            try:
+                payload = json.loads(output)
+                if not isinstance(payload, dict) or not payload.get("error"):
+                    self._error_counts.pop(name, None)
+            except (json.JSONDecodeError, TypeError):
+                pass
+            return output
         except Exception as e:
             logger.error(f"Tool {name} failed: {e}")
-            return json.dumps({"error": str(e)})
+            self._error_counts[name] = self._error_counts.get(name, 0) + 1
+            return json.dumps({
+                "error": str(e),
+                "error_class": e.__class__.__name__,
+                "escalation": self._escalation_note(name),
+            })
+
+    def _escalation_note(self, tool_name: str) -> str:
+        """Return an escalating hint once a tool keeps failing, so the worker
+        changes strategy instead of blindly retrying (D)."""
+        count = self._error_counts.get(tool_name, 0)
+        if count < 2:
+            return ""
+        if tool_name == "run_shell" and count >= 2:
+            return (
+                f"You have failed run_shell {count} times. STOP calling run_shell "
+                "with shell operators / 'cd' / 'rm' — they are blocked. For training "
+                "use launch_experiment with a single argv; for file checks use "
+                "read_file/list_files; for writes use write_file."
+            )
+        if tool_name == "launch_experiment" and count >= 2:
+            return (
+                f"You have failed launch_experiment {count} times. Pass ONE plain "
+                "argv command (no '&&'/'|'/';'), no 'cd', and let log_file "
+                "auto-fill. If metrics come back empty, ensure the training script "
+                "prints 'RESULT {\"validation_accuracy\": ...}' at the end."
+            )
+        if count >= 3:
+            return (
+                f"Tool '{tool_name}' has failed {count} times. Re-read the tool "
+                "description above and change approach — do not retry the same "
+                "invalid call."
+            )
+        return ""
 
     # --- Tool Definitions (for API schema) ---
 
@@ -123,18 +171,24 @@ class ToolRegistry:
         return {
             "name": "launch_experiment",
             "description": (
-                "Launch a long-running training experiment via nohup. Returns PID for "
-                "monitoring. Use this for training runs, NOT run_shell (which rejects "
-                "shell operators and 'cd'). The command runs with the workspace as cwd."
+                "Launch a long-running training experiment in the background and "
+                "return a PID for the framework to monitor. ALWAYS use this for "
+                "training runs (NOT run_shell). The command runs with the workspace "
+                "as cwd, a leading 'cd X &&' is auto-stripped, and stdout/stderr are "
+                "redirected to log_file (auto-filled as logs/exp_<time>.log if you "
+                "omit it). Pass a single argv command with no shell operators, e.g. "
+                "'python train.py --epochs 10 --lr 0.001'. At the end of training, "
+                "have the script print a structured metric line 'RESULT "
+                "{'validation_accuracy': 0.98}' so the framework can compare it."
             ),
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "command": {"type": "string", "description": "Training command (no shell operators)"},
-                    "log_file": {"type": "string", "description": "Path for stdout/stderr log"},
+                    "command": {"type": "string", "description": "Training command (single argv, no shell operators, no 'cd')"},
+                    "log_file": {"type": "string", "description": "Optional path for stdout/stderr log (auto-filled if omitted)"},
                     "gpu": {"type": "string", "description": "CUDA_VISIBLE_DEVICES value"},
                 },
-                "required": ["command", "log_file"],
+                "required": ["command"],
             },
         }
 
@@ -367,18 +421,103 @@ class ToolRegistry:
 
     def _exec_run_shell(self, command: str, timeout: int = 120) -> str:
         """Execute a shell command with timeout."""
-        argv = self._parse_command(command)
-        result = self.backend.run_command(argv=argv, timeout=timeout)
-        return json.dumps(result)
+        try:
+            argv = self._parse_command(command)
+            result = self.backend.run_command(argv=argv, timeout=timeout)
+            self._error_counts.pop("run_shell", None)
+            return json.dumps(result)
+        except (ValueError, RuntimeError, OSError) as exc:
+            # Structured error so the worker can both see the message and be
+            # told how to avoid repeating it (D: error-count escalation reads
+            # the `error_class`/`hint` fields to build an upgrade warning).
+            self._error_counts["run_shell"] = self._error_counts.get("run_shell", 0) + 1
+            return json.dumps({
+                "error": str(exc),
+                "error_class": "command_blocked" if isinstance(exc, ValueError) else "execution_failed",
+                "escalation": self._escalation_note("run_shell"),
+                "hint": (
+                    "For a long-running training run use launch_experiment "
+                    "(which sanitizes `cd`, auto-fills log_file and redirects "
+                    "stdout to disk) instead of run_shell."
+                ),
+            })
 
-    def _exec_launch_experiment(self, command: str, log_file: str, gpu: str = None) -> str:
+    def _sanitize_experiment_command(self, command: str) -> list[str]:
+        """Parse and sanitize a launch_experiment command into argv.
+
+        launch_experiment must NOT run through a shell (so the framework can
+        track the real training PID and redirect its stdout to log_file). This
+        means:
+          - A leading ``cd <dir> &&`` / ``cd <dir> ;`` / ``cd <dir>`` is
+            stripped: every command already runs with the workspace as its cwd,
+            so ``cd`` only adds a shell compound the subprocess could not parse.
+          - Any remaining shell operator (&&, ||, ;, |, >, <, >>) is rejected
+            with an actionable hint: compose the training command as a single
+            argv (e.g. ``python train.py --lr 0.1``) — never a pipeline.
+        """
+        if not command or not command.strip():
+            raise ValueError("launch_experiment command cannot be empty")
+
+        cmd = command.strip()
+        # Strip a leading `cd X &&` / `cd X;` / `cd X` so agents that learned
+        # `cd workspace && python train.py` still work without a shell.
+        import re as _re
+        m = _re.match(r"^cd\s+\S+(\s*[;&]+\s*|\s+)", cmd)
+        if m:
+            cmd = cmd[m.end():].strip()
+
+        shell_ops = ("&&", "||", ";", "|", ">", "<", ">>")
+        for op in shell_ops:
+            if op in cmd:
+                raise ValueError(
+                    f"Shell operator '{op}' is not allowed in launch_experiment. "
+                    "The command runs as a single argv with no shell, so a "
+                    "pipeline or compound command would not be executed as "
+                    "intended. Pass one command, e.g. "
+                    "'python train.py --epochs 10 --lr 0.001'."
+                )
+        if cmd.startswith("cd "):
+            raise ValueError(
+                "'cd' is not needed: launch_experiment already runs with the "
+                "workspace as its cwd. Just pass the training command."
+            )
+
+        try:
+            argv = shlex.split(cmd)
+        except ValueError as exc:
+            raise ValueError(f"Invalid command syntax: {exc}") from exc
+        if not argv:
+            raise ValueError("launch_experiment command cannot be empty")
+        return argv
+
+    def _exec_launch_experiment(self, command: str, log_file: str = None, gpu: str = None) -> str:
         """Launch experiment via nohup, annotating the result with the active
-        experiment-validity budget so monitor/reporting can stay consistent."""
+        experiment-validity budget so monitor/reporting can stay consistent.
+
+        B: Robust argument handling:
+          - ``log_file`` is auto-completed when omitted (the tool schema marks
+            it optional) so the monitor always tails a real file — a missing
+            log_file previously led the worker to run training via run_shell
+            (no on-disk log) or to a monitor/log path mismatch, both of which
+            produced empty metrics.
+          - The command is sanitized (leading ``cd`` stripped, shell operators
+            rejected) so the training subprocess always runs under the correct
+            cwd with a trackable PID.
+        """
         env = {}
         if gpu:
             env["CUDA_VISIBLE_DEVICES"] = gpu
 
-        argv = self._parse_command(command)
+        argv = self._sanitize_experiment_command(command)
+
+        # B: auto-complete log_file when the agent omitted it. Default under a
+        # per-cycle logs/ dir keeps experiments isolated and monitor-path
+        # consistent even across repeated launches.
+        if not log_file or not str(log_file).strip():
+            import time as _time
+            ts = _time.strftime("%Y%m%d_%H%M%S")
+            log_file = f"logs/exp_{ts}.log"
+
         result = self.backend.launch_command(
             argv=argv,
             log_file=self._normalize_path(log_file),

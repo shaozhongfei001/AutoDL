@@ -12,6 +12,7 @@ This means running AutoResearcher 24/7 costs the same as running it
 only during the THINK and REFLECT phases.
 """
 
+import json
 import logging
 import shlex
 import time
@@ -44,6 +45,92 @@ class ExperimentMonitor:
         # A contract: optional budget (mode/limit/hard_wall_clock_limit/enforced).
         # Legacy (no budget) keeps the old unbounded-wait behavior.
         self.budget = budget or {}
+        # In-run early stopping (train-level): parse per-epoch validation
+        # metrics from the live log and terminate the run early when the model
+        # has stopped improving (plateau), so GPU time is not wasted. Disabled
+        # by default (legacy behavior). Config lives under the budget block:
+        #   budget.early_stop.{enabled, patience, improvement_tol, min_epochs, metric}
+        es = (self.budget or {}).get("early_stop") or {}
+        self.early_stop_enabled = bool(es.get("enabled", False))
+        self.early_stop_patience = int(es.get("patience", 3))
+        self.early_stop_tol = float(es.get("improvement_tol", 1e-4))
+        self.early_stop_min_epochs = int(es.get("min_epochs", 5))
+        self.early_stop_metric = str(es.get("metric", "validation_accuracy"))
+        self._early_stopped = False
+
+    def _extract_epoch_metrics(self, log_lines: list[str], metric: str) -> list[float]:
+        """Extract the per-epoch value sequence of ``metric`` from the live log.
+
+        Handles both the structured ``RESULT {...}`` per-epoch snapshot and the
+        legacy ``key=value`` / ``epoch N ... metric=...`` text forms. Returns a
+        chronological list of floats (earliest first). Empty when none found.
+        """
+        import re
+        values: list[float] = []
+        # Structured RESULT snapshots may carry the metric per epoch.
+        for line in log_lines:
+            m = re.search(r"RESULT\s+(\{.*\})", line)
+            if not m:
+                continue
+            try:
+                payload = json.loads(m.group(1))
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if isinstance(payload, dict) and metric in payload:
+                try:
+                    values.append(float(payload[metric]))
+                except (TypeError, ValueError):
+                    pass
+        if values:
+            return values
+        # Legacy regex: `metric=0.98`, `metric: 0.98`, `metric 0.98`.
+        pattern = re.compile(
+            r"(?:{metric}\s*[:=]\s*([0-9.]+))|(?:^.*\b{metric}\b[^\d]*([0-9.]+))".format(
+                metric=re.escape(metric)
+            ),
+            re.IGNORECASE,
+        )
+        for line in log_lines:
+            m = pattern.search(line)
+            if m:
+                val = m.group(1) or m.group(2)
+                try:
+                    values.append(float(val))
+                except (TypeError, ValueError):
+                    pass
+        return values
+
+    def _check_in_run_early_stop(self, pid: int, log_lines: list[str]) -> bool:
+        """In-run early stopping: if validation has plateaued for ``patience``
+        consecutive epochs (beyond a tolerance), terminate the run to save GPU.
+
+        Returns True when the run was early-stopped. Never fires before
+        ``min_epochs`` observations (so the early volatile phase is respected)
+        and only considers the metric named by ``early_stop_metric``.
+        """
+        if not self.early_stop_enabled:
+            return False
+        seq = self._extract_epoch_metrics(log_lines, self.early_stop_metric)
+        if len(seq) < self.early_stop_min_epochs:
+            return False
+        best = max(seq)
+        # Plateau: the most recent `patience` epochs have all stayed within the
+        # tolerance of the running best (no further improvement for patience
+        # consecutive epochs), counting the current (last) epoch too.
+        sustained = 0
+        for v in reversed(seq):
+            if v >= best - self.early_stop_tol:
+                sustained += 1
+            else:
+                break
+        if sustained >= self.early_stop_patience:
+            logger.warning(
+                f"PID={pid} in-run early stop: '{self.early_stop_metric}' plateaued "
+                f"for {sustained} epochs (best={best:.4f}); terminating to save GPU"
+            )
+            self._terminate(pid)
+            return True
+        return False
 
     def launch_experiment(self, command: str, log_file: str, gpu: Optional[str] = None) -> dict:
         """Launch an experiment via nohup and track its PID.
@@ -105,6 +192,17 @@ class ExperimentMonitor:
                 self._terminate(pid)
                 break
 
+            # In-run early stopping (train-level): terminate early when the
+            # per-epoch validation metric has plateaued, so GPU is not wasted
+            # on epochs that cannot improve. Reads the live log tail (no LLM).
+            if self.early_stop_enabled:
+                try:
+                    if self._check_in_run_early_stop(pid, self._safe_tail_file(log_file, lines=200)):
+                        self._early_stopped = True
+                        break
+                except Exception as exc:  # pragma: no cover - advisory, never crash
+                    logger.warning(f"in-run early-stop check failed: {exc}")
+
             logger.info(
                 f"PID={pid} alive | elapsed={elapsed/3600:.1f}h | "
                 f"GPU={gpu_info.get('utilization', 'N/A')} | "
@@ -137,6 +235,22 @@ class ExperimentMonitor:
             self._active_experiments[pid]["status"] = status
 
         metrics = self._extract_metrics(log_tail)
+        # E: empty-metric diagnosis. A *completed* run that produced no metric is
+        # itself a signal worth surfacing (it drove the INCOMPARABLE flood), so
+        # attach a compact diagnosis for the loop to feed back to the code agent.
+        metrics_diagnosis = {}
+        if not metrics and status == "completed":
+            try:
+                metrics_diagnosis = self._diagnose_empty_metrics(log_tail)
+            except Exception as exc:  # pragma: no cover - diagnostic must never crash
+                logger.warning(f"metrics diagnosis failed: {exc}")
+        # In-run early stop marks the run as a completed, budget-friendly run
+        # (not a crash): the model reached a plateau and training was cut short.
+        # The contract status stays SUCCESS (it IS a clean run — just shorter),
+        # so the promotion gate still allows a genuinely better early-stopped
+        # model to be kept; the `early_stopped` flag records the fact.
+        early_stopped = bool(self._early_stopped)
+
         result = {
             "pid": pid,
             "status": status,
@@ -146,8 +260,10 @@ class ExperimentMonitor:
             "elapsed_hours": elapsed / 3600,
             "active_train_seconds": active_seconds,
             "budget_enforced": bool(self.budget.get("enforced")),
+            "early_stopped": early_stopped,
             "log_tail": "\n".join(log_tail),
             "metrics": metrics,
+            "metrics_diagnosis": metrics_diagnosis,
         }
 
         logger.info(
@@ -229,19 +345,41 @@ class ExperimentMonitor:
     def _extract_metrics(self, log_lines: list[str]) -> dict:
         """Try to extract common metrics from training logs.
 
-        Looks for patterns like:
-        - loss: 0.123
-        - accuracy: 95.2%
-        - validation_accuracy=0.99 / test_accuracy=0.98 (split-aware)
-        - FGD: 0.582
-        - epoch 100/200
+        Priority order (most reliable first):
+          1. ``RESULT {...}`` — a single-line JSON emitted at the end of a
+             training script (A: structured metric contract). This is the
+             authoritative, whitespace-safe protocol and is preferred over
+             ad-hoc text regexes. A training script simply prints
+             ``RESULT {"validation_accuracy": 0.982, "test_accuracy": 0.979}``.
+          2. Split-aware ``key=value`` lines (validation_* / test_* / train_*).
+          3. Generic patterns (backwards-compatible): loss / accuracy / FGD /
+             FID / epoch / step.
 
         Split responsibility: ``validation_*`` values are kept for per-round
         selection; ``test_*`` values are tagged so downstream code can treat
         them as independent-acceptance-only (never fed back to selection).
         """
         import re
+
         metrics = {}
+        # 1. Structured RESULT contract — take the LAST valid one so the final
+        #    epoch's snapshot wins, and it overrides any regex-extracted values.
+        for line in log_lines:
+            m = re.search(r"RESULT\s+(\{.*\})", line)
+            if not m:
+                continue
+            try:
+                payload = json.loads(m.group(1))
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if isinstance(payload, dict):
+                cleaned = {k: v for k, v in payload.items() if isinstance(v, (int, float))}
+                if cleaned:
+                    metrics = cleaned  # structured contract replaces regex output
+        if metrics:
+            return metrics
+
+        # 2/3. Regex fallback (legacy / non-RESULT training scripts).
         for line in reversed(log_lines):
             # Split-aware metrics first (validation vs test).
             for pattern, key in [
@@ -272,6 +410,46 @@ class ExperimentMonitor:
                     if match:
                         metrics[key] = match.group(1)
         return metrics
+
+    def _diagnose_empty_metrics(self, log_lines: list[str]) -> dict:
+        """E: Structured diagnosis when a *completed* run yields no metrics.
+
+        Instead of silently returning an empty dict (which produced the
+        INCOMPARABLE-"no candidate metrics" flood), classify WHY extraction
+        failed so the loop can hand the code agent actionable feedback:
+          - (none)            metrics ARE extractable -> return {} (no diagnosis).
+          - result_missing:   no ``RESULT {...}`` line at all AND no regex
+                              metric — the training script does not emit the
+                              structured contract.
+          - log_unavailable:  tail returned nothing (log path mismatch).
+          - result_no_numeric:RESULT line present but had no numeric values
+                              (all strings/None).
+
+        Returns a compact dict merged into the experiment result under
+        ``metrics_diagnosis`` (advisory only; never used for verdict decisions).
+        """
+        import re
+
+        if not log_lines:
+            return {"reason": "log_unavailable", "tail_empty": True,
+                    "hint": "Log path mismatch or empty file; launch_experiment log_file "
+                            "must match the file the monitor tails."}
+
+        # If the log already parses to metrics, there is nothing to diagnose.
+        if self._extract_metrics(log_lines):
+            return {}
+
+        has_result = any(re.search(r"RESULT\s+\{", line) for line in log_lines)
+        if not has_result:
+            return {"reason": "result_missing", "lines": len(log_lines),
+                    "hint": "Training script never printed a structured 'RESULT {...}' "
+                            "line; add one (e.g. print('RESULT ' + json.dumps(metrics))) "
+                            "or rely on regex-parseable 'accuracy=...' text."}
+
+        # RESULT present but contained no numeric values (all strings/None).
+        return {"reason": "result_no_numeric", "lines": len(log_lines),
+                "hint": "RESULT line existed but had no numeric values; emit floats "
+                        "(e.g. validation_accuracy as 0.98, not '98%')."}
 
     def _notify_completion(self, result: dict):
         """Send notification when experiment finishes (success or failure)."""

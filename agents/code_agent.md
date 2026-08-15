@@ -49,19 +49,63 @@ If dry-run fails, fix the issue and retry. Do NOT skip to real training.
 ### Step 4: Launch
 Use `launch_experiment` (NOT `run_shell`) for training:
 
-```bash
+```
 launch_experiment(
   command="python train.py --config config.yaml",
-  log_file="logs/exp_001.log",
-  gpu="0"
+  log_file="logs/exp_001.log",   # optional; auto-filled as logs/exp_<time>.log if omitted
+  gpu="0"                        # optional
 )
 ```
 
-### Step 5: Report
+launch_experiment rules:
+- Pass a SINGLE argv command — NO shell operators (`&&`, `;`, `|`, `>`, `<`)
+  and NO `cd`. A leading `cd X &&` is auto-stripped; every command already
+  runs with the workspace as its cwd.
+- Omit `log_file` if you do not care where the log lands; the framework
+  auto-fills a path under `logs/` so the monitor always tails a real file.
+- If a launch fails, STOP and re-read the error instead of retrying the same
+  call — repeated identical failures trigger an escalation notice.
+
+### Step 5: Emit a structured RESULT line (MANDATORY for metric comparison)
+At the very END of your training script, print a single-line JSON metric
+snapshot. The framework parses this to compare candidates and gate KEEP /
+DISCARD; without it the run is treated as "no metrics" and cannot be accepted.
+
+```python
+import json
+print("RESULT " + json.dumps({
+    "validation_accuracy": float(validation_acc),  # used for per-round selection
+    "test_accuracy": float(test_acc),              # reserved for independent acceptance
+    "validation_loss": float(validation_loss),
+}))
+```
+
+Only numeric values are read. Prefer 0-to-1 fractions (`0.982`) over percent
+strings (`98.2%`). Keep this as the LAST stdout line so the monitor sees the
+final epoch's numbers.
+
+### Step 5b: Log per-epoch validation metrics (enables in-run early stop)
+Print your validation metric EVERY epoch as a plain `key=value` line so the
+monitor can detect a plateau and terminate a converged run early (saving GPU):
+
+```python
+for epoch in range(epochs):
+    train_loss, val_loss, val_acc = train_one_epoch(...)  # your training step
+    print(f"validation_accuracy={val_acc:.4f}")   # monitor parses this for early stop
+```
+
+Also add an in-script EarlyStopping guard (standard PyTorch practice): stop the
+training loop when `validation_accuracy` has not improved for `patience` epochs
+(beyond a small tolerance), then print the final `RESULT` line.
+
+### Step 6: Report
 Report the PID, log file path, and expected training duration.
 
 ## Constraints
 - NEVER skip dry-run
 - ALWAYS use launch_experiment for training (not run_shell)
+- ALWAYS end the training script with a `RESULT {...}` structured metric line
 - ALWAYS report PID and log file path
+- If the monitor reports empty metrics, check that the script printed `RESULT`
+  and that `log_file` (or its auto-filled value) matches — do not silently rerun
 - Do NOT modify protected files (state.json, MEMORY_LOG.md, PROJECT_BRIEF.md)

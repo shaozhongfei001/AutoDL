@@ -49,7 +49,7 @@ def set_seed(seed):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', type=int, default=3)
+    parser.add_argument('--epochs', type=int, default=8)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--seed', type=int, default=17,
                         help='random seed; also drives validation holdout split reproducibility')
@@ -100,8 +100,29 @@ def main():
 
     batches_per_epoch = 2 if args.dry_run else len(train_loader)
 
+    # ============ Evaluation helper (validation holdout, selection) ============
+    def evaluate(loader):
+        model.eval()
+        correct = 0
+        total = 0
+        running_loss = 0.0
+        with torch.no_grad():
+            for data, target in loader:
+                data, target = data.to(device), target.to(device)
+                output = model(data)
+                loss = criterion(output, target)
+                running_loss += loss.item() * target.size(0)
+                _, pred = output.max(1)
+                correct += pred.eq(target).sum().item()
+                total += target.size(0)
+        acc = correct / total
+        avg_loss = running_loss / total
+        return acc, avg_loss
+
     # ============ Training (timed: active_train_seconds) ============
     train_start = time.monotonic()
+    val_accuracy = 0.0
+    val_loss = 0.0
     for epoch in range(1, n_epochs + 1):
         model.train()
         running_loss = 0.0
@@ -127,30 +148,11 @@ def main():
         avg_loss = running_loss / batches_per_epoch
         accuracy = correct / total
         print('Epoch {}/{}: loss={:.4f} acc={:.4f}'.format(epoch, n_epochs, avg_loss, accuracy))
+        # Per-epoch validation metric (early-stop contract): the monitor parses
+        # this sequence to detect a plateau and terminate a converged run early.
+        val_accuracy, val_loss = evaluate(val_loader)
+        print('validation_accuracy={:.4f}'.format(val_accuracy))
     active_train_seconds = time.monotonic() - train_start
-
-    # ============ Evaluation: validation (selection) ============
-    def evaluate(loader):
-        model.eval()
-        correct = 0
-        total = 0
-        running_loss = 0.0
-        with torch.no_grad():
-            for data, target in loader:
-                data, target = data.to(device), target.to(device)
-                output = model(data)
-                loss = criterion(output, target)
-                running_loss += loss.item() * target.size(0)
-                _, pred = output.max(1)
-                correct += pred.eq(target).sum().item()
-                total += target.size(0)
-        acc = correct / total
-        avg_loss = running_loss / total
-        return acc, avg_loss
-
-    val_accuracy, val_loss = evaluate(val_loader)
-    print('validation_accuracy={:.4f}'.format(val_accuracy))
-    print('validation_loss={:.4f}'.format(val_loss))
 
     # ============ Evaluation: test (independent acceptance only) ============
     test_accuracy, test_loss = evaluate(test_loader)
@@ -162,6 +164,17 @@ def main():
     print('seed={}'.format(args.seed))
     print('epochs={}'.format(n_epochs))
     print('batch_size={}'.format(batch_size))
+
+    # ============ Structured metric contract (monitor parses) ============
+    # Single-line JSON printed as the LAST stdout line; validation_* drives
+    # per-round selection, test_* is reserved for independent acceptance.
+    import json
+    print('RESULT ' + json.dumps({
+        'validation_accuracy': round(val_accuracy, 4),
+        'validation_loss': round(val_loss, 4),
+        'test_accuracy': round(test_accuracy, 4),
+        'test_loss': round(test_loss, 4),
+    }))
 
     # ============ Save model ============
     torch.save(model.state_dict(), './model.pt')

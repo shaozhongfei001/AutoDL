@@ -262,9 +262,24 @@ class AgentDispatcher:
                 else:
                     tool_output = tool_registry.execute_tool(name, args)
                 tool_results_log.append({"name": name, "args": args, "output": tool_output})
-                result_blocks.append(
-                    f'<tool_result name="{name}">\n{tool_output}\n</tool_result>'
-                )
+
+                block = f'<tool_result name="{name}">\n{tool_output}\n</tool_result>'
+                # D: surface an escalation hint prominently when a tool keeps
+                # failing, so the worker changes strategy instead of retrying the
+                # same invalid call turn after turn.
+                if tool_output.startswith("{") and '"escalation"' in tool_output:
+                    try:
+                        payload = json.loads(tool_output)
+                        note = payload.get("escalation") or ""
+                        if note:
+                            block += (
+                                "\n<escalation>\n"
+                                f"{note}\n"
+                                "</escalation>"
+                            )
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                result_blocks.append(block)
 
             messages.append({
                 "role": "user",
@@ -710,6 +725,7 @@ class AgentDispatcher:
             ("Recent Experiments", "recent_experiments"),
             ("Dead Ends (do NOT retry these)", "dead_ends"),
             ("Durable Insights", "insights"),
+            ("Empty-Metric Feedback (fix these)", "metrics_feedback"),
         ):
             if context.get(key):
                 parts.append(f"## {label}\n{context[key]}\n")

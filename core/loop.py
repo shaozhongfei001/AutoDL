@@ -173,6 +173,19 @@ class ResearchLoop:
         self._no_improvement_streak = 0
         self._convergence_reason = ""
 
+        # Early-stop (active saturation detection). Instead of only waiting for
+        # `max_no_improvement_rounds` of DISCARD to accumulate, detect a
+        # saturated plateau from machine verdicts (candidates repeatedly within
+        # the noise band below champion) and from leader stagnation (no
+        # experiment launched for several rounds). Disabled unless configured.
+        es = self._le_cfg.get("early_stop", {})
+        self._early_stop_enabled = bool(es.get("enabled", False))
+        self._early_saturation_rounds = int(es.get("saturation_rounds", 3))
+        self._early_plateau_band = float(es.get("plateau_band", 2.0))
+        self._early_max_no_experiment = int(es.get("max_consecutive_no_experiment", 3))
+        self._recent_verdicts: list[dict] = []   # rolling window of machine verdicts
+        self._consecutive_no_experiment = 0
+
         # M6 self-healing: on restart, resume de-dup state from the ledger's
         # promoted candidates so already-accepted ideas are not re-proposed.
         # Best-effort; never blocks startup (legacy empty ledger is a no-op).
@@ -322,6 +335,18 @@ class ResearchLoop:
                         self.memory.log_decision(f"Cycle {self.cycle_count}: {self._convergence_reason}")
                         self._running = False
                         break
+
+                    # Early-stop: active saturation + leader-stagnation detection.
+                    if self._early_stop_enabled:
+                        stop_reason = self._early_stop_reason(think_result, execute_result)
+                        if stop_reason:
+                            self._convergence_reason = stop_reason
+                            logger.warning(stop_reason)
+                            self.memory.log_decision(
+                                f"Cycle {self.cycle_count}: {stop_reason}"
+                            )
+                            self._running = False
+                            break
 
             except Exception as e:
                 logger.error(f"Cycle {self.cycle_count} failed: {e}", exc_info=True)
@@ -479,6 +504,20 @@ class ResearchLoop:
             self._no_improvement_streak = 0
         else:
             self._no_improvement_streak += 1
+
+        # Early-stop: record the verdict (with delta + noise) into a rolling
+        # window for active saturation detection. A launched experiment resets
+        # the leader-stagnation counter regardless of outcome.
+        if self._early_stop_enabled:
+            self._recent_verdicts.append({
+                "verdict": machine.get("verdict"),
+                "delta": machine.get("delta"),
+                "noise_std": self._le_cfg.get("noise_std", 0.0),
+                "cycle": self.cycle_count,
+            })
+            if len(self._recent_verdicts) > max(self._early_saturation_rounds * 2, 6):
+                self._recent_verdicts = self._recent_verdicts[-6:]
+            self._consecutive_no_experiment = 0
 
         # Write machine verdict into durable memory + state (facts, not narrative).
         self.memory.log_decision(
@@ -764,6 +803,76 @@ class ResearchLoop:
 
         return think_result
 
+    def _early_stop_reason(self, think_result: dict, execute_result: dict) -> str:
+        """Active early-stop detection (two triggers), returns a reason string
+        when the loop should converge early, else ''.
+
+        Trigger A — leader stagnation: the leader has launched no experiment for
+        ``max_consecutive_no_experiment`` consecutive rounds (report/wait/other
+        non-experiment actions, or an experiment that never actually launched).
+        This catches the exact failure seen in E2E where a saturated leader keeps
+        emitting reports instead of experiments, so the loop never hits the
+        DISCARD-streak threshold and must be killed manually.
+
+        Trigger B — saturated plateau: the machine loop has produced
+        ``saturation_rounds`` consecutive DISCARD verdicts whose deltas all lie
+        within the noise band below champion (|delta| <= plateau_band*noise_std).
+        That means candidates keep landing on a plateau around the champion and
+        cannot meaningfully improve, so further searching is wasted budget.
+        Requires a non-empty champion (a real best to be saturated against).
+
+        Returns '' (no stop) when early-stop is not enabled or no trigger fires.
+        """
+        if not self._early_stop_enabled:
+            return ""
+
+        # --- Trigger A: leader stagnation (no experiment actually launched) ---
+        experiment_launched = bool(
+            (execute_result or {}).get("experiment_launched")
+        )
+        if experiment_launched:
+            self._consecutive_no_experiment = 0
+        else:
+            self._consecutive_no_experiment += 1
+        if self._early_max_no_experiment > 0 and \
+                self._consecutive_no_experiment >= self._early_max_no_experiment:
+            return (
+                f"converged (early-stop): leader launched no experiment for "
+                f"{self._consecutive_no_experiment} consecutive rounds "
+                f"(limit {self._early_max_no_experiment}); no active exploration"
+            )
+
+        # --- Trigger B: saturated plateau from machine verdicts ---
+        if self._early_saturation_rounds <= 0:
+            return ""
+        recent = self._recent_verdicts[-self._early_saturation_rounds:]
+        if len(recent) < self._early_saturation_rounds:
+            return ""
+        # Require a real champion to have been established (avoid stopping on
+        # the very first INCOMPARABLE runs before a baseline exists).
+        has_champion = bool(self._resolve_champion_metrics())
+        if not has_champion:
+            return ""
+        all_discard = all(
+            r.get("verdict") == "DISCARD" and isinstance(r.get("delta"), (int, float))
+            for r in recent
+        )
+        if not all_discard:
+            return ""
+        # All deltas within the noise plateau band around champion.
+        within_band = all(
+            abs(float(r["delta"])) <= self._early_plateau_band * float(r.get("noise_std") or 0.0)
+            + 1e-12
+            for r in recent
+        )
+        if within_band:
+            return (
+                f"converged (early-stop): {self._early_saturation_rounds} consecutive "
+                f"machine DISCARD verdicts with deltas within the noise plateau "
+                f"(band {self._early_plateau_band}*noise_std); champion appears saturated"
+            )
+        return ""
+
     def _record_cycle_outcome(self, think_result: dict, execute_result: dict, reflect_result: dict):
         """Track whether repeated cycles are producing real progress."""
         if think_result.get("action") != "experiment":
@@ -871,6 +980,21 @@ class ResearchLoop:
                     context["active_violations"] = "\n".join(f"- {v}" for v in violations)
             except Exception as exc:
                 logger.warning(f"violation scan failed: {exc}")
+
+        # E: surface a structured empty-metric diagnosis so the reflect-phase
+        # leader can hand the NEXT code agent an actionable fix (emit a RESULT
+        # line / fix the log path) instead of silently repeating a failed run.
+        try:
+            er = context.get("experiment_result") or {}
+            if isinstance(er, dict) and not (er.get("final_metrics") or {}):
+                diag = er.get("metrics_diagnosis") or {}
+                if isinstance(diag, dict) and diag.get("reason"):
+                    context["metrics_feedback"] = (
+                        "Last run produced NO metrics. Diagnosis: "
+                        f"{diag.get('reason')}. Hint: {diag.get('hint', '')}"
+                    )
+        except Exception as exc:  # pragma: no cover - advisory only
+            logger.warning(f"metrics feedback failed: {exc}")
 
     @staticmethod
     def _format_stagnation(verdict: dict) -> str:
@@ -1057,7 +1181,11 @@ def main():
     if args.gpu is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
-    # Setup logging
+    # Setup logging. A: the framework's own log stream is routed through the
+    # stable, thread-safe loguru framework (see core.logging_setup). The stdlib
+    # basicConfig below is kept as a graceful fallback and for the file handler;
+    # configure_logging bridges the "autodl" logger tree to loguru when
+    # available and is a no-op otherwise.
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
@@ -1066,6 +1194,14 @@ def main():
             logging.FileHandler(Path(args.project) / "autodl.log"),
         ],
     )
+    try:
+        from .logging_setup import configure_logging
+        configure_logging(
+            level=str(config.get("logging", {}).get("level", "INFO")),
+            serialize=bool(config.get("logging", {}).get("serialize", False)),
+        )
+    except Exception as exc:  # pragma: no cover - logging must never block start
+        logging.getLogger("autodl").warning(f"loguru setup failed; using stdlib logging: {exc}")
 
     # Run
     loop = ResearchLoop(config=config, project_dir=args.project)
