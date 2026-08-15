@@ -24,7 +24,7 @@ from .ledger import ExperimentLedger, detect_stagnation, check_phase_gate
 from .journal import ResearchJournal
 from . import safety
 
-logger = logging.getLogger("autoresearcher")
+logger = logging.getLogger("autodl")
 
 
 class ResearchLoop:
@@ -653,7 +653,7 @@ def main():
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler(Path(args.project) / "autoresearcher.log"),
+            logging.FileHandler(Path(args.project) / "autodl.log"),
         ],
     )
 

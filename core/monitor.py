@@ -19,7 +19,7 @@ from typing import Optional
 
 from .execution import ExecutionBackend, LocalExecutionBackend
 
-logger = logging.getLogger("autoresearcher.monitor")
+logger = logging.getLogger("autodl.monitor")
 
 
 class ExperimentMonitor:

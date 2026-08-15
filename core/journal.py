@@ -19,7 +19,7 @@ import logging
 import time
 from pathlib import Path
 
-logger = logging.getLogger("autoresearcher.journal")
+logger = logging.getLogger("autodl.journal")
 
 
 class _AppendOnlyDoc:

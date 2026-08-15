@@ -20,7 +20,7 @@ import time
 from pathlib import Path, PurePosixPath
 from typing import Optional
 
-logger = logging.getLogger("autoresearcher.execution")
+logger = logging.getLogger("autodl.execution")
 
 
 # Directories and files that repo-reading tools (list_tree / grep_files) skip,

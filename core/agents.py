@@ -24,7 +24,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-logger = logging.getLogger("autoresearcher.agents")
+logger = logging.getLogger("autodl.agents")
 
 
 # Agent definitions directory

@@ -23,7 +23,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-logger = logging.getLogger("autoresearcher.contract")
+logger = logging.getLogger("autodl.contract")
 
 
 # --- Schema / defaults -----------------------------------------------------

@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-logger = logging.getLogger("autoresearcher.ledger")
+logger = logging.getLogger("autodl.ledger")
 
 
 class ExperimentLedger:

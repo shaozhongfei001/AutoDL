@@ -25,7 +25,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-logger = logging.getLogger("autoresearcher.gitvcs")
+logger = logging.getLogger("autodl.gitvcs")
 
 # Contributor policy: commits must be authored by the project owner.
 GIT_ENV = {

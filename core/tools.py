@@ -13,7 +13,7 @@ from pathlib import Path
 from .execution import ExecutionBackend, normalize_relative_path
 from .experiment_contract import ProtectedWritePolicy
 
-logger = logging.getLogger("autoresearcher.tools")
+logger = logging.getLogger("autodl.tools")
 
 
 class ToolRegistry:
