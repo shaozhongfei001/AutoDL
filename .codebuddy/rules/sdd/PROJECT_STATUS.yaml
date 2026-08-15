@@ -17,8 +17,8 @@ authority:
   unattended_24x7_authorized: false
   production_ready: false
   frozen: false
-current_gate: "G3_LOOP_ENGINEERING_MANDATE"
-current_phase: "LOOP_ENGINEERING_DESIGN"
+current_gate: "G3_MACHINE_JUDGE_LOOP_IMPLEMENTED"
+current_phase: "LE_REFINE_MACHINE_JUDGE_COMPLETE"
 max_parallel_for_first_pilot: 1
 dev_loop_engineering_mandate:
   contract_added: true
@@ -31,14 +31,22 @@ loop_engineering_mandate:
   contract_added: true
   contract_path: ".codebuddy/rules/sdd/05_LOOP_ENGINEERING.md"
   mechanisms:
-    - M1_autonomous_loop: "present (skeleton)"
-    - M2_machine_verdict: "GAP-not wired into _reflect"
-    - M3_isolation_promotion: "GAP-git_vcs exists, not wired"
-    - M4_archive_before_decide: "GAP-not wired"
-    - M5_convergence: "partial (no_progress only)"
-    - M6_self_healing: "partial (error cooldown only)"
+    - M1_autonomous_loop: "implemented"
+    - M2_machine_verdict: "implemented (decide_verdict wired into _reflect, P1 hardened)"
+    - M3_isolation_promotion: "implemented (GitExperimentVcs + gate_verdict_by_contract_status)"
+    - M4_archive_before_decide: "implemented (build_artifact_manifest before verdict)"
+    - M5_convergence: "implemented (hypothesis dedup + no_progress escalation, P2)"
+    - M6_self_healing: "implemented (ledger resume + error cooldown, P5)"
+  statistical_rigor:
+    multi_seed_aggregation: "implemented (P3: list->mean)"
+    noise_calibration: "implemented (P3: effective=max(config, 2*noise_std))"
+  feedback_loop:
+    verdict_to_think: "implemented (P4: verdict_history/last_verdict/promoted_candidates in THINK context)"
   unattended_24x7_authorized: false
-  note: "Loop Engineering contract mandated in scaffold; implementation required before unattended 24x7."
+  note: >-
+    运行时机器判定闭环 M1-M6 已全部接入并通过 QA（253 tests）。经多阶段开发
+    Loop 试点（LE-REFINE-MACHINE-JUDGE，P1-P5）完成。真实 GPU 无人值守试运行
+    待 HUMAN_OWNER 批准 pilot_authorized。
 phase12_implementation:
   adr_001_implemented: true
   adr_002_d0_implemented: true
@@ -90,8 +98,15 @@ blocked_actions:
   - "未归档制品即作出 KEEP/DISCARD"
   - "未通过 Gate 6 即开启无人值守自动晋级"
 next_required_outputs:
-  - "Gate 0 全仓证据闭合包"
-  - "首个 Study Contract"
-  - "P0 概要设计与 ADR"
-  - "独立 QA Gate 1/Gate 2 报告"
+  - "真实 GPU 无人值守试运行（pilot_authorized 后）"
+  - "无人值守准入 Gate 验证（DLE-01..07）"
+  - "运行时机器判定闭环在真实任务的端到端观测"
+long_range_tasks:
+  - task_id: "LE-REFINE-MACHINE-JUDGE"
+    objective: "强化运行时机器判定闭环"
+    status: "DELIVERED"
+    phases_completed: ["P1", "P2", "P3", "P4", "P5"]
+    phase_plan_dir: "contracts/phases/LE-REFINE-MACHINE-JUDGE/"
+    tests_pass: 253
+    dev_loop_engineering_pilot: "validated (multi-phase, unattended, GATE-per-phase)"
 
