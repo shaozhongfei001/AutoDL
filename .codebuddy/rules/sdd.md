@@ -18,6 +18,8 @@ globs: "**/*"
 | `02_SDD_CONSTRAINTS.md` | P0/P1 强制约束（VCS/SPC/EVAL/RUN/ART/AGT/QLT）、禁止行为、违规处置 | 硬约束 |
 | `03_SDD_ROLES.md` | HUMAN_OWNER / MAIN-00 / ARCH-01 / SEC-01 / QA-01 治理角色、开发角色、运行时 Agent 角色、RACI、职责分离 | 权限 |
 | `04_SDD_GATES_AND_QA.md` | Gate 0—6、实验状态机、独立 QA 验收矩阵、门禁报告格式 | 门禁 |
+| `05_LOOP_ENGINEERING.md` | Loop Engineering 机制契约：无人值守自我迭代（M1-M6）、状态机、无人值守准入、验收 | 强制机制 |
+| `06_DEV_LOOP_ENGINEERING.md` | 开发工作流 Loop Engineering：CodeBuddy 长程任务多阶段开发 Loop（PLAN→EXEC→CHECK→REFLECT→GATE）、无人值守执行规范、阶段状态机 | 开发流程强制契约 |
 | `PROJECT_STATUS.yaml` | 当前治理状态、唯一权威入口、被阻止动作、下一步产出 | 状态 |
 | `templates/STUDY_CONTRACT_TEMPLATE.yaml` | 研究专题机器可读合同模板 | 模板 |
 | `templates/EXPERIMENT_CONTRACT_TEMPLATE.yaml` | 单次候选实验合同模板 | 模板 |

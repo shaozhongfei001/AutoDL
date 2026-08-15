@@ -17,9 +17,28 @@ authority:
   unattended_24x7_authorized: false
   production_ready: false
   frozen: false
-current_gate: "G2_IMPLEMENTATION_QA_PASS"
-current_phase: "PILOT_PENDING"
+current_gate: "G3_LOOP_ENGINEERING_MANDATE"
+current_phase: "LOOP_ENGINEERING_DESIGN"
 max_parallel_for_first_pilot: 1
+dev_loop_engineering_mandate:
+  contract_added: true
+  contract_path: ".codebuddy/rules/sdd/06_DEV_LOOP_ENGINEERING.md"
+  note: >-
+    开发工作流 Loop Engineering 契约已强制增加：CodeBuddy 把长程任务规划为
+    多阶段，每阶段是 PLAN→EXEC→CHECK→REFLECT→GATE 开发 Loop，无人值守多阶段
+    自动推进，逐步把长程大任务引向成功交付。区别于 05（运行时训练循环）。
+loop_engineering_mandate:
+  contract_added: true
+  contract_path: ".codebuddy/rules/sdd/05_LOOP_ENGINEERING.md"
+  mechanisms:
+    - M1_autonomous_loop: "present (skeleton)"
+    - M2_machine_verdict: "GAP-not wired into _reflect"
+    - M3_isolation_promotion: "GAP-git_vcs exists, not wired"
+    - M4_archive_before_decide: "GAP-not wired"
+    - M5_convergence: "partial (no_progress only)"
+    - M6_self_healing: "partial (error cooldown only)"
+  unattended_24x7_authorized: false
+  note: "Loop Engineering contract mandated in scaffold; implementation required before unattended 24x7."
 phase12_implementation:
   adr_001_implemented: true
   adr_002_d0_implemented: true
