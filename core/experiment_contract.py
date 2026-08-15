@@ -180,6 +180,34 @@ def resolve_budget(experiment: dict) -> dict:
     }
 
 
+def _aggregate_metric(value):
+    """Aggregate a primary-metric value into a single float.
+
+    Supports a list/tuple (multiple seeds -> mean), a single numeric/string,
+    and rejects booleans. Returns ``None`` when the value is not usable.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None  # bool is an invalid metric signal
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return None
+        nums = []
+        for v in value:
+            if isinstance(v, bool):
+                return None
+            try:
+                nums.append(float(v))
+            except (TypeError, ValueError):
+                return None
+        return sum(nums) / len(nums)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def decide_verdict(
     candidate_metrics: dict,
     champion_metrics: dict,
@@ -187,50 +215,133 @@ def decide_verdict(
     direction: str = "maximize",
     minimum_effect_size: float = 0.0,
     confidence_rule: str = "exceed_min_effect_size",
+    noise_std: float = 0.0,
 ) -> dict:
-    """Machine-authoritative promotion verdict (ADR-002).
+    """Machine-authoritative promotion verdict (ADR-002 / P3 statistical).
 
     Compares a candidate against the current champion on ``primary_metric``.
     Returns a dict with ``verdict`` in {KEEP, DISCARD, INCOMPARABLE} and a
-    numeric ``delta``. ``minimum_effect_size`` (>0) must be exceeded for KEEP,
-    otherwise a small-but-positive delta is still DISCARD (noise guard). When
-    either side lacks the metric the verdict is INCOMPARABLE.
+    numeric ``delta``.
+
+    P3 additions:
+    * ``candidate_metrics[primary]`` / ``champion_metrics[primary]`` may be a
+      list of seed runs -> aggregated to their mean before comparison.
+    * ``noise_std`` (measured across seeds) tightens the effect-size bar:
+      ``effective = max(configured min_effect_size, 2 * noise_std)`` so a
+      candidate that improves by less than the measurement noise is never KEEP.
+
+    When either side lacks the metric the verdict is INCOMPARABLE.
     """
-    cand = candidate_metrics.get(primary_metric) if isinstance(candidate_metrics, dict) else None
-    champ = champion_metrics.get(primary_metric) if isinstance(champion_metrics, dict) else None
-    if cand is None or champ is None:
+    # --- robustness guards (P1) ---
+    if not primary_metric or not isinstance(primary_metric, str):
+        return {"verdict": "INCOMPARABLE", "reason": "primary_metric missing or invalid", "delta": None}
+    if direction not in ("maximize", "minimize"):
         return {
             "verdict": "INCOMPARABLE",
-            "reason": f"primary metric '{primary_metric}' missing on candidate or champion",
+            "reason": f"invalid direction '{direction}' (must be maximize/minimize)",
+            "delta": None,
+        }
+    # effect size must be a non-negative number; coerce numeric strings, reject
+    # anything unparseable instead of letting a later comparison throw.
+    try:
+        effect_size = float(minimum_effect_size) if minimum_effect_size not in (None, "", 0, 0.0) else 0.0
+        if effect_size < 0:
+            return {"verdict": "INCOMPARABLE", "reason": "minimum_effect_size must be >= 0", "delta": None}
+    except (TypeError, ValueError):
+        return {
+            "verdict": "INCOMPARABLE",
+            "reason": f"minimum_effect_size not numeric: {minimum_effect_size!r}",
             "delta": None,
         }
     try:
-        cand_f = float(cand)
-        champ_f = float(champ)
+        noise_std_f = float(noise_std) if noise_std not in (None, "", 0, 0.0) else 0.0
+        if noise_std_f < 0:
+            return {"verdict": "INCOMPARABLE", "reason": "noise_std must be >= 0", "delta": None}
     except (TypeError, ValueError):
-        return {"verdict": "INCOMPARABLE", "reason": "primary metric not numeric", "delta": None}
+        return {
+            "verdict": "INCOMPARABLE",
+            "reason": f"noise_std not numeric: {noise_std!r}",
+            "delta": None,
+        }
+    # Effective bar: configured effect size, raised by measured noise (2x rule).
+    effective_effect = max(effect_size, 2.0 * noise_std_f) if noise_std_f > 0 else effect_size
 
-    delta = (cand_f - champ_f) if direction == "maximize" else (champ_f - cand_f)
+    if not isinstance(candidate_metrics, dict) or not isinstance(champion_metrics, dict):
+        return {"verdict": "INCOMPARABLE", "reason": "candidate/champion metrics must be dicts", "delta": None}
+    cand = _aggregate_metric(candidate_metrics.get(primary_metric))
+    champ = _aggregate_metric(champion_metrics.get(primary_metric))
+    if cand is None or champ is None:
+        return {
+            "verdict": "INCOMPARABLE",
+            "reason": f"primary metric '{primary_metric}' missing/non-numeric on candidate or champion",
+            "delta": None,
+        }
+
+    delta = (cand - champ) if direction == "maximize" else (champ - cand)
     improved = delta > 0
-    meets_effect = (not minimum_effect_size) or (delta >= minimum_effect_size)
+    meets_effect = (not effective_effect) or (delta >= effective_effect)
 
     if improved and meets_effect:
         return {
             "verdict": "KEEP",
             "reason": (
-                f"{primary_metric} {cand_f} vs champion {champ_f} (delta {delta:.5f}, "
-                f"min_effect_size {minimum_effect_size})"
+                f"{primary_metric} cand={cand:.5f} vs champion={champ:.5f} "
+                f"(delta {delta:.5f}, min_effect_size {effective_effect:.5f}, "
+                f"noise_std {noise_std_f})"
             ),
             "delta": delta,
         }
     return {
         "verdict": "DISCARD",
         "reason": (
-            f"{primary_metric} {cand_f} vs champion {champ_f} "
+            f"{primary_metric} cand={cand:.5f} vs champion={champ:.5f} "
             f"({'improved but below min_effect_size' if improved else 'not improved'})"
         ),
         "delta": delta,
     }
+
+
+# Contract statuses that are clean enough to allow a candidate to be promoted.
+# An empty status (legacy monitor without a configured budget) is treated as SUCCESS.
+CLEAN_CONTRACT_STATUSES = {"SUCCESS", ""}
+
+
+def gate_verdict_by_contract_status(verdict: dict, contract_status: str) -> dict:
+    """Apply the run's ``contract_status`` as a hard gate on a machine verdict.
+
+    ``contract_status`` is one of SUCCESS / BUDGET_EXCEEDED / TIMEOUT / CRASH
+    (produced by :func:`classify_run_outcome`). A run that did not finish
+    cleanly must never be KEEP, regardless of what the raw metric comparison
+    says — promoting a budget-killed or crashed run would violate the
+    "champion never regresses" invariant.
+
+    Legacy behavior (empty status) is treated as SUCCESS so the verdict passes
+    through unchanged. Returns a verdict dict with ``verdict`` in
+    {KEEP, DISCARD, INCOMPARABLE} plus a ``contract_status`` key.
+    """
+    if not isinstance(verdict, dict):
+        return {
+            "verdict": "INCOMPARABLE",
+            "reason": f"verdict not a dict: {type(verdict).__name__}",
+            "contract_status": (contract_status or "SUCCESS").upper(),
+            "delta": None,
+        }
+    status = (contract_status or "SUCCESS").upper()
+    current = verdict.get("verdict")
+    if current == "KEEP" and status not in CLEAN_CONTRACT_STATUSES:
+        return {
+            "verdict": "DISCARD",
+            "reason": (
+                f"run did not complete cleanly (contract_status={status}); "
+                "refusing to promote a candidate that crashed or exhausted budget"
+            ),
+            "delta": verdict.get("delta"),
+            "contract_status": status,
+        }
+    # KEEP stays KEEP; DISCARD/INCOMPARABLE are already conservative.
+    out = dict(verdict)
+    out["contract_status"] = status
+    return out
 
 
 def classify_run_outcome(active_train_seconds: float, budget: dict, terminated: str = "completed") -> str:

@@ -1,6 +1,14 @@
 import unittest
 
-from core.safety import prune_timestamps, scan_violations, seconds_until_allowed
+from core.safety import (
+    check_hypothesis_dedup,
+    escalate_no_progress,
+    is_hypothesis_duplicate,
+    normalize_hypothesis,
+    prune_timestamps,
+    scan_violations,
+    seconds_until_allowed,
+)
 
 
 class ScanViolationsTests(unittest.TestCase):
@@ -68,6 +76,71 @@ class RateLimitTests(unittest.TestCase):
         now = 10000.0
         ts = [now - 5000, now - 100, now - 50]
         self.assertEqual(prune_timestamps(ts, now=now, window=3600), [now - 100, now - 50])
+
+
+class HypothesisDedupTests(unittest.TestCase):
+    def test_normalize_hypothesis_stable(self):
+        self.assertEqual(
+            normalize_hypothesis("  Try LR 1e-3,  batch 32! "),
+            normalize_hypothesis("try lr 1e-3 batch 32"),
+        )
+
+    def test_empty_hypothesis_normalizes_to_empty(self):
+        self.assertEqual(normalize_hypothesis(None), "")
+        self.assertEqual(normalize_hypothesis("  "), "")
+
+    def test_novel_hypothesis_allowed(self):
+        verdict = check_hypothesis_dedup("try lr 1e-3", [], repeated_hypothesis_limit=1)
+        self.assertTrue(verdict["allowed"])
+        self.assertEqual(verdict["reason"], "")
+
+    def test_repeated_hypothesis_rejected(self):
+        attempted = ["try lr 1e-3", "different thing"]
+        verdict = check_hypothesis_dedup("Try LR 1e-3 !", attempted,
+                                         repeated_hypothesis_limit=1)
+        self.assertFalse(verdict["allowed"])
+        self.assertIn("duplicate", verdict["reason"])
+
+    def test_limit_of_two_allows_first_repeat(self):
+        attempted = ["try lr 1e-3"]
+        verdict = check_hypothesis_dedup("try lr 1e-3", attempted,
+                                         repeated_hypothesis_limit=2)
+        self.assertTrue(verdict["allowed"])
+
+    def test_disabled_dedup_always_allows(self):
+        verdict = check_hypothesis_dedup("x", ["x"], repeated_hypothesis_limit=0)
+        self.assertTrue(verdict["allowed"])
+
+    def test_is_duplicate_matches_set_input(self):
+        self.assertTrue(is_hypothesis_duplicate("b", {"a", "b"}, repeated_hypothesis_limit=1))
+        self.assertFalse(is_hypothesis_duplicate("c", {"a", "b"}, repeated_hypothesis_limit=1))
+
+
+class NoProgressEscalationTests(unittest.TestCase):
+    def test_normal_below_threshold(self):
+        self.assertEqual(escalate_no_progress(0)["level"], "normal")
+        self.assertEqual(escalate_no_progress(2, widen_threshold=3)["level"], "normal")
+
+    def test_widen_at_low_streak(self):
+        decision = escalate_no_progress(4, widen_threshold=3,
+                                        lower_target_threshold=6, terminate_threshold=10)
+        self.assertEqual(decision["level"], "widen")
+        self.assertIn("widen", decision["advice"].lower())
+
+    def test_lower_target_at_mid_streak(self):
+        decision = escalate_no_progress(7, widen_threshold=3,
+                                        lower_target_threshold=6, terminate_threshold=10)
+        self.assertEqual(decision["level"], "lower_target")
+
+    def test_terminate_at_high_streak(self):
+        decision = escalate_no_progress(11, widen_threshold=3,
+                                        lower_target_threshold=6, terminate_threshold=10)
+        self.assertEqual(decision["level"], "terminate")
+        self.assertIn("terminat", decision["advice"].lower())
+
+    def test_custom_thresholds(self):
+        self.assertEqual(escalate_no_progress(2, widen_threshold=5)["level"], "normal")
+        self.assertEqual(escalate_no_progress(5, widen_threshold=5)["level"], "widen")
 
 
 if __name__ == "__main__":

@@ -63,7 +63,10 @@ def head_sha(repo: Path, ref: str = "HEAD") -> str:
 
 def is_descendant(repo: Path, ancestor: str, descendant: str) -> bool:
     """True if ``descendant`` contains ``ancestor`` in its history (fast-forward possible)."""
-    proc = _run(repo, "merge-base", "--is-ancestor", ancestor, descendant)
+    # ``--is-ancestor`` exits 0 (ancestor) or 1 (not an ancestor); a non-ancestor
+    # must NOT raise, otherwise a legitimately non-fast-forward candidate would
+    # crash the loop instead of being rejected cleanly.
+    proc = _run(repo, "merge-base", "--is-ancestor", ancestor, descendant, check=False)
     return proc.returncode == 0
 
 
@@ -127,16 +130,25 @@ class GitExperimentVcs:
         """Create an isolated worktree for a candidate from ``base_sha``.
 
         Returns the worktree path. The code agent may only write inside it.
+        Idempotent for resume: if the worktree/branch already exists it is
+        reused instead of being recreated.
         """
         branch = f"{self.candidate_ref_prefix}-{experiment_id}"
-        worktree = parent / f"candidate-{experiment_id}"
-        worktree.mkdir(parents=True, exist_ok=True)
+        worktree = Path(parent) / f"candidate-{experiment_id}"
+        # A resume will already have registered this worktree (a ``.git`` file
+        # marker is written by git); return it as-is rather than re-adding.
+        if (worktree / ".git").exists():
+            return worktree
+        # Ensure the parent directory exists so git can create the worktree.
+        worktree.parent.mkdir(parents=True, exist_ok=True)
         try:
             _run(self.repo, "worktree", "add", str(worktree), base_sha, "-b", branch)
         except VcsError as exc:
-            # Branch already exists (resume) -> reuse the existing worktree branch.
+            # Branch already exists (resume) -> attach the existing branch.
+            # ``--force`` bypasses the "path already exists" guard left over
+            # from a previous partial add.
             if "already exists" in str(exc):
-                _run(self.repo, "worktree", "add", str(worktree), branch)
+                _run(self.repo, "worktree", "add", "--force", str(worktree), branch)
             else:
                 raise
         return worktree
@@ -175,10 +187,19 @@ class GitExperimentVcs:
         """
         files: list[dict] = []
 
-        def _snap(p: Path, role: str) -> None:
-            if p and p.exists():
-                digest = hashlib.sha256(p.read_bytes()).hexdigest()
-                files.append({"path": str(p.relative_to(worktree)), "role": role, "sha256": digest})
+        def _snap(p, role: str) -> None:
+            # Coerce plain strings to Path so callers may pass either form.
+            p = Path(p) if isinstance(p, str) else p
+            if p is None or not p.exists():
+                return
+            digest = hashlib.sha256(p.read_bytes()).hexdigest()
+            try:
+                rel = str(p.relative_to(worktree))
+            except ValueError:
+                # File lives outside the worktree (e.g. a central log dir):
+                # record the absolute path so it is still reproducible.
+                rel = str(p.resolve())
+            files.append({"path": rel, "role": role, "sha256": digest})
 
         _snap(log_file, "log")
         _snap(checkpoint, "checkpoint")
@@ -194,14 +215,20 @@ class GitExperimentVcs:
         for extra in (extra_files or []):
             _snap(extra, "artifact")
 
-        manifest = {
+        # SHA-256 over the whole manifest (excluding the self-referential
+        # digest) so any tamper of metrics, champion_sha, candidate_sha or the
+        # file snapshot is detectable — not just changes to ``files``.
+        body = {
             "experiment_id": experiment_id,
             "champion_sha": champion_sha,
             "candidate_sha": self._worktree_head(worktree),
             "metrics": metrics,
             "files": files,
+        }
+        manifest = {
+            **body,
             "manifest_sha256": hashlib.sha256(
-                json.dumps(files, sort_keys=True, default=str).encode()
+                json.dumps(body, sort_keys=True, default=str).encode("utf-8")
             ).hexdigest(),
         }
         return manifest

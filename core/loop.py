@@ -109,6 +109,42 @@ class ResearchLoop:
             else None
         )
 
+        # --- M2: machine-judgment (Loop Engineering) configuration ---
+        # Enabled when an experiment contract declares a primary metric AND the
+        # ledger is available. When disabled, the loop falls back to the legacy
+        # LLM-only REFLECT path (backwards compatible).
+        self._le_cfg = self._experiment_cfg.get("loop_engineering", {}) or {}
+        eval_cfg = self._experiment_cfg.get("evaluation", {}) or {}
+        pm = eval_cfg.get("primary_metric", {}) or {}
+        self._primary_metric = str(pm.get("name") or "").strip()
+        self._primary_direction = str(pm.get("direction") or "maximize")
+        try:
+            self._min_effect_size = float(eval_cfg.get("minimum_effect_size", 0.0))
+        except (TypeError, ValueError):
+            self._min_effect_size = 0.0
+        # Machine judgment is authoritative only when there is a real metric to
+        # compare and a ledger to record it into. Otherwise -> legacy path.
+        self._machine_judge_enabled = bool(
+            self._primary_metric
+            and self.ledger is not None
+            and self._le_cfg.get("enabled", True)
+        )
+        # Optional VCS controller (M3/M4). Guarded so a missing/partial vcs
+        # implementation degrades to ledger-only archiving, never crashes.
+        self._vcs = None
+        if self._le_cfg.get("vcs", {}).get("enabled", False):
+            try:
+                from .git_vcs import GitExperimentVcs
+                vcs_repo = Path(self._le_cfg["vcs"].get("repo", self.project_dir))
+                self._vcs = GitExperimentVcs(
+                    repo=vcs_repo,
+                    champion_ref=self._le_cfg["vcs"].get("champion_ref", "champion/STUDY-001"),
+                    candidate_ref_prefix=self._le_cfg["vcs"].get("candidate_ref_prefix", "experiment/STUDY-001"),
+                )
+            except Exception as exc:  # pragma: no cover - optional infra
+                logger.warning(f"VCS controller unavailable; archiving to ledger only: {exc}")
+                self._vcs = None
+
         # State
         self.cycle_count = self._load_cycle_counter()
         self.max_cycles = agent_config.get("max_cycles", -1)
@@ -120,6 +156,29 @@ class ResearchLoop:
         self._running = True
         self._no_progress_streak = 0
         self._last_no_progress_signature = ""
+        # M5 convergence: track attempted hypotheses so the loop rejects repeats.
+        # Config: experiment.loop_engineering.dedup.{enabled,repeated_hypothesis_limit}
+        self._dedup_enabled = bool(
+            self._le_cfg.get("dedup", {}).get("enabled", False)
+        )
+        self._repeated_hypothesis_limit = int(
+            self._le_cfg.get("dedup", {}).get("repeated_hypothesis_limit", 1)
+        )
+        self._attempted_hypotheses: set[str] = set()
+
+        # M6 self-healing: on restart, resume de-dup state from the ledger's
+        # promoted candidates so already-accepted ideas are not re-proposed.
+        # Best-effort; never blocks startup (legacy empty ledger is a no-op).
+        if self.ledger is not None and self._dedup_enabled:
+            try:
+                from .resilience import recover_verdict_history
+                from .safety import normalize_hypothesis
+                vh = recover_verdict_history(self.ledger.all())
+                for cand_sha in vh.get("promoted_candidates") or []:
+                    if cand_sha:
+                        self._attempted_hypotheses.add(normalize_hypothesis(cand_sha))
+            except Exception as exc:  # pragma: no cover - recovery must not crash
+                logger.warning(f"M6 dedup-state resume failed (continuing): {exc}")
 
         # Graceful shutdown
         signal.signal(signal.SIGTERM, self._handle_signal)
@@ -159,6 +218,7 @@ class ResearchLoop:
 
                 # THINK: Analyze and plan
                 think_result = self._think(directive)
+                think_result = self._apply_hypothesis_dedup(think_result)
                 think_result = self._apply_no_progress_fallback(think_result, directive)
 
                 if think_result.get("action") == "wait":
@@ -208,8 +268,12 @@ class ResearchLoop:
                         }
                     )
 
-                # REFLECT: Evaluate and update
-                reflect_result = self._reflect(execute_result)
+                # REFLECT: Evaluate and update. M2 runs a machine judgment BEFORE
+                # the LLM reflection so the verdict is authoritative; the LLM's
+                # narrative is only a hypothesis/explanation and can never
+                # override the machine's KEEP/DISCARD/INCOMPARABLE decision.
+                machine_judgment = self._machine_judge(execute_result)
+                reflect_result = self._reflect(execute_result, machine_judgment=machine_judgment)
                 self._update_state(
                     {
                         "cycle": self.cycle_count,
@@ -291,8 +355,227 @@ class ResearchLoop:
             notify=self.config.get("monitor", {}).get("notify_on_complete", True),
         )
 
-    def _reflect(self, execute_result: dict) -> dict:
-        """REFLECT phase: evaluate results and update memory."""
+    def _machine_judge(self, execute_result: dict) -> Optional[dict]:
+        """M2 machine-judgment loop: produce an authoritative KEEP/DISCARD/
+        INCOMPARABLE verdict BEFORE the LLM reflection runs.
+
+        Flow (all failures degrade gracefully, never crash the main loop):
+          1. Skip (return None) when M2 is disabled or no experiment was run
+             -> the legacy LLM-only REFLECT path is preserved.
+          2. Read candidate metrics + ``contract_status`` from the monitor result.
+          3. Archive candidate artifacts (build_artifact_manifest) if a VCS
+             controller is available — archive before decide.
+          4. Resolve champion metrics (ledger best metric, else configured).
+          5. Call ``decide_verdict`` and gate it by ``contract_status``.
+          6. Record the verdict to the ledger + write it to memory/state.
+
+        The returned dict is machine-authoritative; LLM narrative cannot override
+        it. Returns None to fall back to legacy reflection.
+        """
+        if not self._machine_judge_enabled:
+            return None
+        if not execute_result.get("experiment_launched"):
+            return None
+
+        metrics = execute_result.get("final_metrics") or {}
+        if not isinstance(metrics, dict):
+            metrics = {}
+        # Prefer the monitor's real contract_status (SUCCESS/BUDGET_EXCEEDED/
+        # TIMEOUT/CRASH). Legacy paths carry only `experiment_status`
+        # ("completed"/"failed"): map those to SUCCESS / CRASH so the gate works.
+        contract_status = execute_result.get("contract_status")
+        if not contract_status:
+            legacy_status = (execute_result.get("experiment_status") or "").lower()
+            contract_status = "CRASH" if legacy_status == "failed" else "SUCCESS"
+        contract_status = str(contract_status).upper()
+
+        # Nothing to compare if the candidate produced no metrics -> INCOMPARABLE.
+        verdict = {"verdict": "INCOMPARABLE", "reason": "no candidate metrics", "delta": None}
+
+        champion_metrics = self._resolve_champion_metrics()
+        if metrics:
+            try:
+                from .experiment_contract import decide_verdict, gate_verdict_by_contract_status
+                raw = decide_verdict(
+                    candidate_metrics=metrics,
+                    champion_metrics=champion_metrics,
+                    primary_metric=self._primary_metric,
+                    direction=self._primary_direction,
+                    minimum_effect_size=self._min_effect_size,
+                )
+                # Hard-gate by contract status: a crashed/timed-out/budget-killed
+                # run is never KEEP even if metrics happen to look good.
+                verdict = gate_verdict_by_contract_status(raw, contract_status)
+            except Exception as exc:
+                logger.warning(f"M2 decide_verdict failed; falling back to INCOMPARABLE: {exc}")
+                verdict = {"verdict": "INCOMPARABLE", "reason": f"decide_verdict error: {exc}", "delta": None}
+
+        # --- M4: archive before decide (best-effort, ledger fallback) ---
+        artifact_manifest_uri = ""
+        candidate_sha = ""
+        champion_before_sha = self._champion_sha()
+        try:
+            manifest_uri, candidate_sha = self._archive_candidate_artifacts(execute_result, verdict)
+            artifact_manifest_uri = manifest_uri
+        except Exception as exc:
+            logger.warning(f"M2 artifact archive failed (continuing to ledger): {exc}")
+
+        # --- promotion side effect (M3, best-effort) ---
+        promotion_status = ""
+        if verdict.get("verdict") == "KEEP" and candidate_sha:
+            promotion_status = self._try_promote(candidate_sha, champion_before_sha)
+
+        machine = dict(verdict)
+        machine["promotion_status"] = promotion_status
+        machine["artifact_manifest_uri"] = artifact_manifest_uri
+        machine["candidate_sha"] = candidate_sha
+        machine["champion_before_sha"] = champion_before_sha
+        machine["metrics"] = metrics
+        machine["contract_status"] = contract_status
+        machine["primary_metric"] = self._primary_metric
+
+        self._record_verdict(machine)
+
+        # Write machine verdict into durable memory + state (facts, not narrative).
+        self.memory.log_decision(
+            f"M2 verdict cycle={self.cycle_count}: {machine['verdict']} "
+            f"(contract={contract_status}, {machine.get('reason', '')})"
+        )
+        state = self._load_state()
+        state["verdict"] = machine.get("verdict")
+        state["promotion_status"] = promotion_status
+        state["last_verdict"] = machine
+        self.state_path.write_text(json.dumps(state, indent=2))
+
+        logger.info(f"M2 machine verdict cycle={self.cycle_count}: {machine['verdict']} (contract={contract_status})")
+        return machine
+
+    # --- M2 helpers ----------------------------------------------------------
+
+    def _resolve_champion_metrics(self) -> dict:
+        """Best-known champion metrics for the primary metric.
+
+        Prefers the ledger's best metric; otherwise returns an empty dict, which
+        makes decide_verdict return INCOMPARABLE until a champion exists.
+        """
+        if self.ledger is not None and self._primary_metric:
+            try:
+                direction = "higher_better" if self._primary_direction == "maximize" else "lower_better"
+                best = self.ledger.best_metric(self._primary_metric, direction=direction)
+                if best is not None:
+                    return {self._primary_metric: best}
+            except Exception as exc:
+                logger.warning(f"M2 champion metric resolve failed: {exc}")
+        return {}
+
+    def _champion_sha(self) -> str:
+        """Current champion SHA for ledger versioning (best-effort)."""
+        if self._vcs is not None:
+            try:
+                from .git_vcs import head_sha
+                return head_sha(self._vcs.repo, self._vcs.champion_ref)
+            except Exception as exc:
+                logger.warning(f"M2 champion sha unavailable: {exc}")
+        return ""
+
+    def _archive_candidate_artifacts(self, execute_result: dict, verdict: dict) -> tuple[str, str]:
+        """Archive candidate artifacts into an immutable manifest (M4).
+
+        Returns ``(manifest_uri, candidate_sha)``. Falls back to a ledger-manifest
+        (no git) when the VCS controller is absent or the worktree is unavailable.
+        """
+        experiment_id = str(execute_result.get("pid") or self.cycle_count)
+        log_path = None
+        if execute_result.get("log_file"):
+            lp = Path(execute_result["log_file"])
+            if lp.exists():
+                log_path = lp
+        metrics = execute_result.get("final_metrics") or {}
+
+        if self._vcs is not None:
+            # Prefer the isolated candidate worktree; otherwise snapshot from the
+            # controller workspace log so archiving still happens before decide.
+            wt = None
+            for candidate in (self.workspace / "candidates").iterdir() if (self.workspace / "candidates").is_dir() else []:
+                if candidate.is_dir() and candidate.name.endswith(experiment_id):
+                    wt = candidate
+                    break
+            if wt is not None:
+                manifest = self._vcs.build_artifact_manifest(
+                    experiment_id=experiment_id,
+                    worktree=wt,
+                    metrics=metrics,
+                    log_file=log_path,
+                )
+                candidate_sha = manifest.get("candidate_sha", "")
+                uri = f"artifacts/{experiment_id}/manifest.json"
+                # persist the manifest JSON under the workspace for reproducibility
+                manifest_path = self.workspace / "artifacts" / experiment_id / "manifest.json"
+                try:
+                    import json as _json
+                    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+                    manifest_path.write_text(_json.dumps(manifest, indent=2, default=str))
+                except OSError as exc:
+                    logger.warning(f"M2 manifest persist failed: {exc}")
+                return uri, candidate_sha
+
+        # Ledger-manifest fallback: archive facts without git (never blocks decide).
+        try:
+            manifest = {
+                "experiment_id": experiment_id,
+                "metrics": metrics,
+                "verdict": verdict.get("verdict"),
+                "contract_status": verdict.get("contract_status"),
+                "log_file": str(log_path) if log_path else "",
+            }
+            manifest_path = self.workspace / "artifacts" / experiment_id / "manifest.json"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.write_text(json.dumps(manifest, indent=2, default=str))
+            return f"artifacts/{experiment_id}/manifest.json", ""
+        except OSError as exc:
+            logger.warning(f"M2 ledger-manifest archive failed: {exc}")
+            return "", ""
+
+    def _try_promote(self, candidate_sha: str, expected_parent_sha: str) -> str:
+        """Best-effort M3 promotion (fast-forward only). Degrades to a no-op when
+        the VCS controller is absent or the parent is stale."""
+        if self._vcs is None:
+            return "PROMOTION_SKIPPED_NO_VCS"
+        try:
+            result = self._vcs.promote_to_champion(candidate_sha, expected_parent_sha)
+            if result.get("ok"):
+                return "PROMOTED"
+            return f"PROMOTION_DEFERRED:{result.get('reason', 'UNKNOWN')}"
+        except Exception as exc:
+            logger.warning(f"M2 promotion skipped: {exc}")
+            return "PROMOTION_SKIPPED"
+
+    def _record_verdict(self, machine: dict):
+        """Persist the machine verdict to the append-only ledger (M4)."""
+        if self.ledger is None:
+            return
+        try:
+            self.ledger.record_verdict(
+                cycle=self.cycle_count,
+                experiment_id=str(machine.get("candidate_sha") or self.cycle_count),
+                metrics=machine.get("metrics") or {},
+                verdict=machine.get("verdict", ""),
+                champion_before_sha=machine.get("champion_before_sha", ""),
+                candidate_sha=machine.get("candidate_sha", ""),
+                promotion_status=machine.get("promotion_status", ""),
+                artifact_manifest_uri=machine.get("artifact_manifest_uri", ""),
+                reason=machine.get("reason", ""),
+            )
+        except Exception as exc:
+            logger.warning(f"M2 verdict ledger record failed: {exc}")
+
+    def _reflect(self, execute_result: dict, machine_judgment: Optional[dict] = None) -> dict:
+        """REFLECT phase: evaluate results and update memory.
+
+        When ``machine_judgment`` is present (M2 active), it is the authoritative
+        decision. The LLM's reflection is reduced to a hypothesis/explanation and
+        is only recorded as narrative — it can never override the machine verdict.
+        """
         logger.info("REFLECT phase starting...")
 
         context = {
@@ -302,11 +585,28 @@ class ResearchLoop:
             "cycle": self.cycle_count,
         }
         self._enrich_context(context)
+        # Surface the machine verdict to the leader as non-overridable facts.
+        if machine_judgment:
+            context["machine_verdict"] = machine_judgment
+            context["llm_narrative_can_override"] = False
 
         result = self.dispatcher.dispatch_leader(
             task="reflect",
             context=context,
         )
+
+        # M2: the machine verdict is authoritative — fold it into the reflected
+        # decision so downstream state/ledger reflect reality, not LLM opinion.
+        if machine_judgment and machine_judgment.get("verdict"):
+            mv = machine_judgment
+            verdict = mv["verdict"]
+            reason = mv.get("reason") or ""
+            result["verdict"] = verdict
+            result["promotion_status"] = mv.get("promotion_status", "")
+            result["decision"] = f"[machine:{verdict}] {reason}".strip()
+            # LLM narrative is kept as an explanation only.
+            if result.get("decision"):
+                result["narrative"] = result.get("milestone") or result.get("decision")
 
         # Update memory based on reflection
         if result.get("milestone"):
@@ -338,6 +638,42 @@ class ResearchLoop:
         }
         return json.dumps(normalized, sort_keys=True, ensure_ascii=True)
 
+    def _apply_hypothesis_dedup(self, think_result: dict) -> dict:
+        """M5 convergence: reject repeated hypotheses before they are executed.
+
+        If hypothesis de-duplication is enabled and the THINK plan repeats an
+        already-attempted idea, inject a duplicate advisory into the context and
+        record the key — so the loop converges instead of burning budget on the
+        same experiment. When disabled or no hypothesis is present, this is a
+        no-op (legacy behavior preserved).
+        """
+        if not self._dedup_enabled:
+            return think_result
+        hypothesis = think_result.get("hypothesis") or think_result.get("task") or ""
+        if not hypothesis:
+            return think_result
+        try:
+            from .safety import check_hypothesis_dedup
+            decision = check_hypothesis_dedup(
+                hypothesis, self._attempted_hypotheses, self._repeated_hypothesis_limit
+            )
+            self._attempted_hypotheses.add(decision["key"])
+            if not decision["allowed"]:
+                reason = decision["reason"] or "duplicate hypothesis"
+                logger.warning(f"M5 dedup blocked: {reason}")
+                self.memory.log_decision(f"Cycle {self.cycle_count}: {reason}")
+                # Inject the advisory so the next THINK tries a different idea.
+                think_result = dict(think_result)
+                think_result["hypothesis_dedup_blocked"] = True
+                think_result["hypothesis_dedup_reason"] = reason
+                # Return wait so the loop cools down and the leader re-plans with
+                # the advisory in context rather than executing a repeat.
+                think_result["action"] = "wait"
+                think_result["reason"] = reason
+        except Exception as exc:  # pragma: no cover - convergence must not crash
+            logger.warning(f"M5 dedup check failed (continuing): {exc}")
+        return think_result
+
     def _apply_no_progress_fallback(self, think_result: dict, directive: Optional[str]) -> dict:
         """Back off if the same experiment plan keeps repeating without progress."""
         if directive or self.no_progress_fallback_threshold <= 0:
@@ -351,6 +687,17 @@ class ResearchLoop:
             self._no_progress_streak >= self.no_progress_fallback_threshold
             and signature == self._last_no_progress_signature
         ):
+            # M5 escalation: translate the streak into a concrete next action.
+            escalation = "normal"
+            escalation_advice = ""
+            try:
+                from .safety import escalate_no_progress
+                esc = escalate_no_progress(self._no_progress_streak)
+                escalation = esc.get("level", "normal")
+                escalation_advice = esc.get("advice", "")
+            except Exception as exc:  # pragma: no cover - advisory only
+                logger.warning(f"M5 escalation failed (continuing with default): {exc}")
+
             reason = (
                 f"Fallback triggered after {self._no_progress_streak} no-progress cycles on the same plan. "
                 "Backing off to avoid empty loops until new signal arrives."
@@ -366,6 +713,8 @@ class ResearchLoop:
                 "action": "wait",
                 "reason": reason,
                 "decision": reason,
+                "no_progress_escalation": escalation,
+                "no_progress_advice": escalation_advice,
             }
 
         return think_result
@@ -407,6 +756,22 @@ class ResearchLoop:
                     context["recent_experiments"] = summary
             except Exception as exc:  # never let context-building break a cycle
                 logger.warning(f"ledger summary failed: {exc}")
+
+            # M2/M5/M6: rebuild the machine-verdict history from the ledger so the
+            # leader can avoid re-proposing hypotheses already judged (dedup) and
+            # resume from the last verdict. Pure; ledger is the single source of
+            # truth even if state.json is corrupt/missing.
+            try:
+                from .resilience import recover_verdict_history
+                vh = recover_verdict_history(self.ledger.all())
+                if vh.get("last_verdict"):
+                    context["last_verdict"] = vh["last_verdict"]
+                if vh.get("verdicts"):
+                    context["verdict_history"] = vh["verdicts"]
+                if vh.get("promoted_candidates"):
+                    context["promoted_candidates"] = vh["promoted_candidates"]
+            except Exception as exc:  # never let context-building break a cycle
+                logger.warning(f"verdict history rebuild failed: {exc}")
 
             metric_key = self._ledger_cfg.get("metric_key", "")
             direction = self._ledger_cfg.get("metric_direction", "higher_better")
