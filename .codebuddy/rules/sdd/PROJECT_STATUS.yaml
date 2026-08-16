@@ -19,17 +19,43 @@ authority:
   unattended_24x7_authorized: false
   production_ready: false
   frozen: false
-current_gate: "G0_EVIDENCE_CLOSURE_CLOSED"
-current_phase: "MVD_V3_G0_CLOSED"
+current_gate: "G1_CONTRACT_BASELINE"
+current_phase: "MVD_V3_G1_OWNER_DECISION_REMEDIATION_REQUIRED"
 gate_status:
   G0_STATUS: "PASS (CLOSED)"
   g0_qa_signoff: "QA-01 (EVD-G0-020-QA01-Signoff.md, PASS)"
   g0_four_role_review: "QA-01/SEC-01/DEV-VCS-01/DEV-EVAL-01 all PASS"
-  g0_head_commit: "19b7e8f"
-  g0_evidence_dir: "evidence/mvd/g0/"
+  g0_head_commit: "19b7e8f3540626eb38627193aee3ddfda356bfa8"
+  g0_commits:
+    - "19b7e8f3540626eb38627193aee3ddfda356bfa8"
+    - "a3c414e21085df2ffc2a8e5870d2e44794c00ea2"
+    - "cda2de986c96c2ae9094dd0348b0430dde3c176e"
+    - "65ba4fb0293872f7aa9cd9fd58763284b17ebcb6"
   g0_corrected_deviation: "EVD-G0-012 pydantic NOT_PRESENT->PRESENT 2.13.4 (SEC-01 found, cda2de9 corrected, QA-01 re-verified)"
-  g1_pending: "pydantic+pyright dual-env freeze; C8 0.7723 not V3 baseline; metric identity/Study Contract/hard constraints freeze"
+  G1_STATUS: "OWNER_DECISION_REMEDIATION_REQUIRED"
+  G1_PASS: "NO"
+  g1_owner_decision: "PARTIAL_APPROVAL_G1_DECISION_PACK_WITH_TARGETED_REMEDIATION"
+  g1_remediation_head: "ce1750d"   # 完整 SHA 见下方 g1_commits
+  g1_qa_trigger_authorized: "NO"
+  qa_g1_signoff: "PENDING"
+  # G1 关键决策回填
+  g1_canonical_runtime: "/home/szf/env/AutoDL/.venv/bin/python (3.10.12, torch 2.5.0+cu124)"
+  g1_active_budget_seconds: 600
+  g1_hard_wallclock_seconds: 900
+  g1_cohort: "COHORT-RTX3060L-6G-V1"
+  g1_confidence_policy: "PAIRED_STUDENT_T_ONE_SIDED_95_V1"
+  g1_min_practical_delta: "0.02 NLL_NAT_PER_TOKEN_V1"
+  g1_state_root: "/home/szf/mvd-state (external to git worktrees)"
+  g1_closure_pending:
+    - "dataset fingerprints + independent final-test split (D-12)"
+    - "hardware manifest hash (D-04)"
+    - "contract_hash / policy_bundle_hash"
+    - "baseline files SHA-256 + effective time + Owner"
+    - "QA-01 independent QA-G1 signoff"
 max_parallel_for_first_pilot: 1
+g1_commits:
+  - "f1f35652848c1b0ee4c5f0a1c8cce7d0fd2b03e6"
+  - "ce1750d408c77eb0e9b99becb5c69fb5313f21ba"
 dev_loop_engineering_mandate:
   contract_added: true
   contract_path: ".codebuddy/rules/sdd/06_DEV_LOOP_ENGINEERING.md"
