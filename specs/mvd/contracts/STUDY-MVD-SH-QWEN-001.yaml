@@ -1,0 +1,183 @@
+schema_version: "study-contract/v1"
+study_id: "STUDY-MVD-SH-QWEN-001"
+study_version: "1.0-draft"
+status: "DRAFT"
+project_id: "auto-deep-researcher-24x7"
+gate: "G1_CONTRACT_BASELINE_PREPARATION"
+generated_by: "TECH_LEAD (ARCH-01)"
+generated_at_utc: "2026-08-17T03:50:00Z"
+
+# =============================================================
+# STUDY-MVD-SH-QWEN-001 —— MVD 首个合同基线（G1）
+# 所有字段解析至正式值 / 显式 null / 规范化 N/A。
+# Owner 待决值标记 PENDING_OWNER_DECISION，见 Owner 决策包。
+# =============================================================
+
+profile_id: "supervised_holdout"
+
+authority:
+  owner_decision_id: "ODR-MVD-20260816-001"     # V3.0 批准决策
+  repository_base_commit: "83e41c1"              # G0 基线（main HEAD，无 drift）
+  contract_hash: "CALCULATE_AFTER_APPROVAL"
+  policy_bundle_hash: "CALCULATE_AFTER_APPROVAL"
+  canonical_runtime: "PENDING_OWNER_DECISION"    # G1-02 推荐 .venv
+  canonical_runtime_env_id: "ENV-VENV"
+
+research:
+  objective: "在固定 Study 合同下验证机器判定、baseline、事务、隔离与恢复闭环"
+  model_task: "Qwen fine-tuning supervised holdout regression fixture"
+  profile: "supervised_holdout"
+  non_goals:
+    - cross_study_ranking
+    - cross_hardware_ranking
+    - reinforcement_learning
+    - time_series
+    - computer_vision_profile_extension
+    - unsupervised
+    - pareto_multi_objective
+    - automatic_causal_attribution
+
+# ---------------- G1-07 Budget Contract ----------------
+budget:
+  mode: "active_train_seconds"
+  limit_seconds: "PENDING_OWNER_DECISION"        # 推荐见 Owner 决策包（不照搬历史 300）
+  hard_wall_clock_limit_seconds: "PENDING_OWNER_DECISION"  # 推荐见 Owner 决策包
+  timing_policy_id: "MONOTONIC_ACTIVE_TRAIN_V1"
+  hardware_cohort_id: "PENDING_OWNER_DECISION"   # 推荐 COHORT-RTX3060L-6G
+  queue_in_active_budget: false
+  setup_in_active_budget: false
+  compile_in_active_budget: false
+  warmup_in_active_budget: false
+  required_events:
+    - queue_seconds
+    - setup_seconds
+    - compile_seconds
+    - warmup_seconds
+    - active_train_seconds
+    - evaluation_seconds
+    - artifact_finalize_seconds
+    - total_wall_seconds
+  historical_candidate_only: true
+  historical_300_420_status: "CANDIDATE_EVIDENCE_ONLY"
+
+# ---------------- Data & Metric Identity (G1-05) ----------------
+data:
+  dataset_name: "alpaca-cleaned"
+  dataset_version: "fixed-snapshot"
+  dataset_fingerprint: "PENDING_OWNER_DECISION"  # 需 Owner 确认数据源指纹
+  train_split_fingerprint: "PENDING_OWNER_DECISION"
+  validation_split_fingerprint: "PENDING_OWNER_DECISION"
+  preprocess_hash: "PENDING_OWNER_DECISION"
+  tokenizer: "Qwen2.5-0.5B tokenizer (via hf-mirror)"
+  tokenizer_hash: "PENDING_OWNER_DECISION"
+
+# ---------------- G1-04 Profile Baseline ----------------
+profile_registry:
+  enabled_profiles: ["supervised_holdout"]
+  disallowed_profiles_this_study: ["reinforcement_learning", "time_series", "computer_vision", "unsupervised", "pareto_multi_objective"]
+  note: >-
+    首期仅允许 supervised_holdout。不得扩展宣称 RL、CV、time-series、
+    unsupervised 或 Pareto 多目标。
+
+# ---------------- G1-05 Metric Identity ----------------
+evaluation:
+  primary_metric_id: "validation_loss"
+  direction: "MINIMIZE"
+  unit_registry_id: "PENDING_OWNER_DECISION"     # 推荐 nats
+  evaluator_hash: "PENDING_OWNER_DECISION"
+  aggregation_policy_id: "PAIRED_MEAN_V1"
+  checkpoint_selection_policy_id: "PENDING_OWNER_DECISION"  # 推荐 BEST_VALIDATION_LOSS
+  validation_schema_id: "selection-metric/v1"
+  test_schema_id: "final-test-metric/v1"
+  dataset_identity_frozen: true
+  split_identity_frozen: true
+  preprocess_identity_frozen: true
+  evaluator_identity_frozen: true
+  unit_identity_frozen: true
+  direction_identity_frozen: true
+  aggregation_identity_frozen: true
+  checkpoint_selection_frozen: true
+  hardware_cohort_frozen: true
+
+# ---------------- G1-06 Statistical Policy ----------------
+statistics:
+  seeds: "PENDING_OWNER_DECISION"                # 推荐 [17, 29, 43]
+  minimum_repeats: "PENDING_OWNER_DECISION"      # 推荐 3
+  uncertainty_method: "PAIRED_SE_V1"
+  confidence_policy_id: "PENDING_OWNER_DECISION" # 推荐 DIFFERENCE_EXCEEDS_2X_POOLED_SE
+  min_practical_delta: "PENDING_OWNER_DECISION_POSITIVE_FINITE"  # 推荐见 Owner 决策包
+  practical_delta_reference: "C8/C9 diagnostic only, NOT formal baseline"
+  fallback_bar: null
+  fallback_bar_enabled: false
+  insufficient_evidence_action: "HUMAN_REVIEW"
+
+# ---------------- G1-08 Constraint Contract ----------------
+constraints:
+  hard: "PENDING_OWNER_DECISION_EXPLICIT_LIST_OR_EMPTY"
+  soft: []
+  completeness_required: true
+  completeness_machine_verifiable: true
+
+baseline:
+  allow_provisional: true
+  allowed_partial_reason: ["HARD_TIMEOUT"]
+  provisional_requires_exact_owner_record: true
+  historical_cycle1_owner_record_status: "DRAFT_NOT_EFFECTIVE"
+  historical_cycle1_effective: false
+  provisional_auto_keep_allowed: false
+  # ---- C8/C9 历史数据控制（Owner 决策）----
+  cycle8_validation_loss: "0.7723"
+  cycle8_usage: "DIAGNOSTIC_AND_REPLAY_ONLY"
+  cycle9_validation_loss: "0.9188"
+  cycle9_usage: "DIAGNOSTIC_AND_REPLAY_ONLY"
+  c8_v3_baseline_authority: "NO"
+  c8_establish_v3_champion: false
+  c8_formal_baseline: false
+  c8_derive_practical_delta: false
+  c8_derive_fallback_bar: false
+  c8_backfill_c1_provisional: false
+  c8_study_contract_effective_evidence: false
+
+# ---------------- G1-09 Isolation Contract ----------------
+change_scope:
+  allowlist: "PENDING_OWNER_DECISION"            # 推荐 examples/llm_finetune/train_ft.py
+  protected_paths: "PENDING_OWNER_DECISION"      # 推荐 data/specs/contracts/tests/core 等
+  dependency_change_allowed: false
+  max_changed_files: "PENDING_OWNER_DECISION"    # 推荐 1
+  max_diff_lines: "PENDING_OWNER_DECISION"       # 推荐 200
+
+access:
+  selection_namespace: "PENDING_OWNER_DECISION"  # 推荐 selection/iterative
+  final_test_namespace: "PENDING_OWNER_DECISION_SEPARATE"  # 推荐 final-test/qa
+  iterative_principal: "PENDING_OWNER_DECISION"  # 推荐 DEV-ITERATIVE
+  final_eval_principal: "PENDING_OWNER_DECISION_SEPARATE"  # 推荐 QA-01
+  committer_principal: "PENDING_OWNER_DECISION_SEPARATE"   # 推荐 DEV-VCS-01
+  test_feedback_to_iterative_loop: false
+  selection_test_namespace_separated: true
+  selection_test_principal_separated: true
+  selection_test_acl_separated: true
+  test_result_feedback_to_iterative_agent: false
+
+# ---------------- G1-10 Artifact/Ledger Contract ----------------
+artifact:
+  root: "PENDING_OWNER_DECISION"                 # 推荐 artifacts/mvd/
+  manifest_schema_id: "artifact-manifest/v1"
+  atomic_publish_required: true
+  sha256_required: true
+  append_only: true
+
+ledger:
+  path: "PENDING_OWNER_DECISION"                 # 推荐 specs/mvd/ledger/ledger.jsonl
+  schema_id: "mvd-ledger/v1"
+  append_only: true
+  replay_required: true
+  replay_rule: "immutable-replay-from-sha256-manifest"
+
+# ---------------- Runtime ----------------
+runtime:
+  max_parallel: 1
+  zero_llm_monitor: true
+  auto_keep_enabled: false
+  pilot_enabled: false
+  unattended_24x7_authorized: false
+  production_ready: false

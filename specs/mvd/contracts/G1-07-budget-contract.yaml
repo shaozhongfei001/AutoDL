@@ -1,0 +1,52 @@
+schema_version: "budget-contract/v1"
+policy_id: "MVD-BUDGET-V1"
+status: "DRAFT_FOR_G1_REVIEW"
+study_id: "STUDY-MVD-SH-QWEN-001"
+gate: "G1_CONTRACT_BASELINE_PREPARATION"
+generated_by: "TECH_LEAD (ARCH-01) + DEV-RUN-01"
+generated_at_utc: "2026-08-17T03:55:00Z"
+
+# =============================================================
+# G1-07 Budget Contract
+# 分离 active-train budget 与 hard wall-clock timeout。
+# 历史 300/420 只能作为候选证据，不直接成为生产事实。
+# =============================================================
+
+active_train_budget:
+  mode: "active_train_seconds"
+  limit_seconds: "PENDING_OWNER_DECISION"    # 推荐见 Owner 决策包
+  timing_policy_id: "MONOTONIC_ACTIVE_TRAIN_V1"
+  timer: "monotonic"
+  queue_in_active_budget: false
+  setup_in_active_budget: false
+  compile_in_active_budget: false
+  warmup_in_active_budget: false
+  note: >-
+    active-train budget 仅统计纯训练（含 warmup 排除策略），
+    不计 queue/setup/compile/evaluation/artifact finalize。
+
+hard_wall_clock_timeout:
+  limit_seconds: "PENDING_OWNER_DECISION"   # 推荐见 Owner 决策包
+  note: >-
+    hard wall-clock timeout 是绝对上限，超出即强制终止训练进程。
+    独立于 active-train budget，防止悬挂。
+
+required_time_events:
+  - queue_seconds
+  - setup_seconds
+  - compile_seconds
+  - warmup_seconds
+  - active_train_seconds
+  - evaluation_seconds
+  - artifact_finalize_seconds
+  - total_wall_seconds
+
+historical_budget:
+  active_300_seconds: "CANDIDATE_EVIDENCE_ONLY"
+  wallclock_420_seconds: "CANDIDATE_EVIDENCE_ONLY"
+  can_be_production_fact: false
+  note: >-
+    历史 300/420 仅作为候选证据。最终 active budget / hard timeout
+    由 G0/G1 环境测量提出，经 Owner 决策后冻结。
+
+missing_owner_decision_action: "HUMAN_REVIEW"

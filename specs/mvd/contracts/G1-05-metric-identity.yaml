@@ -1,0 +1,75 @@
+schema_version: "metric-identity/v1"
+policy_id: "MVD-METRIC-IDENTITY-V1"
+status: "DRAFT_FOR_G1_REVIEW"
+study_id: "STUDY-MVD-SH-QWEN-001"
+gate: "G1_CONTRACT_BASELINE_PREPARATION"
+generated_by: "TECH_LEAD (ARCH-01) + DEV-EVAL-01"
+generated_at_utc: "2026-08-17T03:55:00Z"
+
+# =============================================================
+# G1-05 Metric Identity
+# 冻结 dataset/split/preprocess/evaluator/unit/direction/aggregation/
+# checkpoint-selection/hardware cohort。
+# =============================================================
+
+primary_metric:
+  metric_id: "validation_loss"
+  direction: "MINIMIZE"
+  unit: "PENDING_OWNER_DECISION"   # 推荐 nats
+  evaluator_hash: "PENDING_OWNER_DECISION"
+  aggregation: "PAIRED_MEAN_V1"
+  checkpoint_selection: "BEST_VALIDATION_LOSS"
+  note: >-
+    checkpoint_selection=BEST_VALIDATION_LOSS：从 validation 指标最低的
+    checkpoint 取指标，用于逐轮选优与最终验收。
+
+dataset_identity:
+  dataset_name: "alpaca-cleaned"
+  dataset_fingerprint: "PENDING_OWNER_DECISION"
+
+split_identity:
+  train: "PENDING_OWNER_DECISION"
+  validation: "PENDING_OWNER_DECISION"
+  test: "PENDING_OWNER_DECISION"
+
+preprocess_identity:
+  preprocess_hash: "PENDING_OWNER_DECISION"
+  tokenizer: "Qwen2.5-0.5B"
+  tokenizer_hash: "PENDING_OWNER_DECISION"
+
+evaluator_identity:
+  evaluator_hash: "PENDING_OWNER_DECISION"
+  test_evaluator_hash: "PENDING_OWNER_DECISION"
+
+hardware_cohort:
+  cohort_id: "PENDING_OWNER_DECISION"
+  recommended: "COHORT-RTX3060L-6G"
+  accelerator: "NVIDIA GeForce RTX 3060 Laptop GPU"
+  count: 1
+  comparability_requires_exact_cohort: true
+
+identity_freeze_declaration:
+  dataset_identity_frozen: true
+  split_identity_frozen: true
+  preprocess_identity_frozen: true
+  evaluator_identity_frozen: true
+  unit_identity_frozen: true
+  direction_identity_frozen: true
+  aggregation_identity_frozen: true
+  checkpoint_selection_frozen: true
+  hardware_cohort_frozen: true
+
+secondary_metrics:
+  - metric_id: "train_loss"
+    direction: "MINIMIZE"
+    unit: "nats"
+  - metric_id: "validation_accuracy"
+    direction: "MAXIMIZE"
+    unit: "percentage_point"
+  - metric_id: "active_train_seconds"
+    direction: "MINIMIZE"
+    unit: "seconds"
+
+note: >-
+  单一 metric identity 保证跨 candidate 的公平比较与可复现。
+  C8/C9 历史数据（0.7723/0.9188）仅作诊断与 replay，不建立 metric baseline。

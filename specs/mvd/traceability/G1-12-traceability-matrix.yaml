@@ -1,0 +1,104 @@
+schema_version: "traceability-matrix/v1"
+matrix_id: "MVD-TRACEABILITY-G1"
+status: "DRAFT_FOR_G1_REVIEW"
+study_id: "STUDY-MVD-SH-QWEN-001"
+gate: "G1_CONTRACT_BASELINE_PREPARATION"
+generated_by: "TECH_LEAD (ARCH-01)"
+generated_at_utc: "2026-08-17T04:00:00Z"
+
+# =============================================================
+# G1-12 Traceability Matrix
+# G0 证据 → Study 字段 → ADR → Owner 决策 → QA 检查项
+# =============================================================
+
+traces:
+  - id: "TR-001"
+    g0_evidence: "EVD-G0-012 dependency-baseline (pydantic 2.13.4, pyright 1.1.409)"
+    study_field: "authority.canonical_runtime / env"
+    adr: "ADR-MVD-001 strict schema"
+    owner_decision: "PENDING (canonical runtime)"
+    qa_check: "QA-G1-01: canonical runtime 唯一且 288 测试通过"
+
+  - id: "TR-002"
+    g0_evidence: "EVD-G0-013 test-baseline (288 passed)"
+    study_field: "authority.canonical_runtime + runtime"
+    adr: "ADR-MVD-001"
+    owner_decision: "PENDING (canonical runtime)"
+    qa_check: "QA-G1-01: 288 测试在 canonical 通过"
+
+  - id: "TR-003"
+    g0_evidence: "EVD-G0-019 replay-fixture-manifest (C1-C7)"
+    study_field: "baseline (provisional + C8/C9 control)"
+    adr: "ADR-MVD-007 owner-decision-provisional"
+    owner_decision: "APPROVED: C8/C9 DIAGNOSTIC_AND_REPLAY_ONLY (OWNER_DECISION)"
+    qa_check: "QA-G1-02: C8/C9 不建立 V3 baseline/champion"
+
+  - id: "TR-004"
+    g0_evidence: "EVD-G0-010 repository-baseline (83e41c1)"
+    study_field: "authority.repository_base_commit"
+    adr: "ADR-MVD-009 gate-authorization"
+    owner_decision: "APPROVED: SOURCE_CODE_BASE_COMMIT=83e41c1"
+    qa_check: "QA-G1-03: main 无 drift，base_commit 正确"
+
+  - id: "TR-005"
+    g0_evidence: "EVD-G0-016 evaluation-flow (selection/test 隔离)"
+    study_field: "access + evaluation"
+    adr: "ADR-MVD-003 isolation-planes"
+    owner_decision: "PENDING (principals)"
+    qa_check: "QA-G1-04: selection/test namespace+principal+ACL 分离"
+
+  - id: "TR-006"
+    g0_evidence: "EVD-G0-015 repository-search"
+    study_field: "constraints.hard"
+    adr: "ADR-MVD-005 hard-constraints"
+    owner_decision: "PENDING (hard constraints 完整集)"
+    qa_check: "QA-G1-05: hard constraints 完整或显式空，机器可验证"
+
+  - id: "TR-007"
+    g0_evidence: "EVD-G0-018 mutation-map"
+    study_field: "change_scope + access.committer_principal"
+    adr: "ADR-MVD-006 worktree-manifest-ledger"
+    owner_decision: "PENDING (committer principal)"
+    qa_check: "QA-G1-06: 独立 committer，隔离 worktree"
+
+  - id: "TR-008"
+    g0_evidence: "EVD-G0-014 source-index"
+    study_field: "artifact + ledger"
+    adr: "ADR-MVD-006"
+    owner_decision: "PENDING (artifact root / ledger path)"
+    qa_check: "QA-G1-07: manifest+SHA256+append-only ledger"
+
+  - id: "TR-009"
+    g0_evidence: "EVD-G0-020 QA-01 signoff (G0)"
+    study_field: "profile_id + evaluation + statistics"
+    adr: "ADR-MVD-004 metric-identity"
+    owner_decision: "PENDING (budget/delta/seeds)"
+    qa_check: "QA-G1-08: metric identity + statistical policy 冻结"
+
+  - id: "TR-010"
+    g0_evidence: "EVD-G0-011/012 worktree + dependency"
+    study_field: "budget + hardware_cohort"
+    adr: "ADR-MVD-002 budget-timing"
+    owner_decision: "PENDING (active budget/hard timeout/hardware)"
+    qa_check: "QA-G1-09: active-train vs hard wall-clock 分离"
+
+  - id: "TR-011"
+    g0_evidence: "ODR-MVD-20260816-001 (V3.0 approval)"
+    study_field: "authority.owner_decision_id"
+    adr: "ADR-MVD-007 + ADR-MVD-009"
+    owner_decision: "APPROVED: V3.0 (ODR-MVD-20260816-001)"
+    qa_check: "QA-G1-10: ODR 记录完整 40 位 SHA"
+
+# 门禁自检项
+g1_gate_selfcheck:
+  - single_runtime_frozen_288_pass: "PENDING (canonical runtime Owner decision)"
+  - no_unexplained_pending_tbd: "IN_PROGRESS (Owner 决策字段待定)"
+  - metric_identity_complete: "true"
+  - hard_constraints_machine_verifiable: "true"
+  - selection_test_isolation_closed: "true"
+  - fallback_bar_disabled: "true"
+  - c1_provisional_not_effective: "true"
+  - adr_001_009_complete: "true (9/9 generated)"
+  - all_baseline_files_versioned_sha256_owner: "PENDING (需归档 + SHA256)"
+  - qa_g1_signoff_pass: "PENDING (QA-01)"
+  - project_status_40_sha: "PENDING"

@@ -1,0 +1,42 @@
+schema_version: "constraint-contract/v1"
+policy_id: "MVD-CONSTRAINTS-V1"
+status: "DRAFT_FOR_G1_REVIEW"
+study_id: "STUDY-MVD-SH-QWEN-001"
+gate: "G1_CONTRACT_BASELINE_PREPARATION"
+generated_by: "TECH_LEAD (ARCH-01)"
+generated_at_utc: "2026-08-17T03:55:00Z"
+
+# =============================================================
+# G1-08 Constraint Contract
+# hard constraints 必须是完整清单或显式空集合；不得缺省。
+# =============================================================
+
+hard_constraints:
+  status: "PENDING_OWNER_DECISION_EXPLICIT_LIST_OR_EMPTY"
+  completeness_required: true
+  completeness_machine_verifiable: true
+  rule: "MUST_BE_EXPLICIT_FULL_LIST_OR_EXPLICIT_EMPTY"
+  note: >-
+    hard constraints 字段在最终 Study Contract 中必须呈现为完整清单或
+    显式空集合（[]），禁止缺省。是否为空由 Owner 决策包决定。
+    machine verifiable：字段存在且类型为 list 且非 PENDING/TBD。
+
+soft_constraints:
+  value: []
+  note: "soft constraints 本期为空（不构成阻断条件）。"
+
+candidate_constraints_draft:
+  # 以下为 DEV/ARCH 推荐候选（供 Owner 决策），非最终冻结
+  draft_hard_constraints:
+    - "resource_quota_1xRTX3060L"
+    - "dependency_change_forbidden"
+    - "data_readonly"
+    - "governance_contracts_readonly"
+    - "tests_oracle_readonly"
+    - "destructive_git_forbidden"
+    - "no_test_feedback_to_iterative_agent"
+  draft_soft_constraints: []
+
+enforcement:
+  fail_closed: true
+  violation_action: "HUMAN_REVIEW_AND_CONTRACT_BLOCK"

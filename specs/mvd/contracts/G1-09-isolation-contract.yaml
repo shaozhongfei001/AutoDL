@@ -1,0 +1,55 @@
+schema_version: "isolation-contract/v1"
+policy_id: "MVD-ISOLATION-V1"
+status: "DRAFT_FOR_G1_REVIEW"
+study_id: "STUDY-MVD-SH-QWEN-001"
+gate: "G1_CONTRACT_BASELINE_PREPARATION"
+generated_by: "TECH_LEAD (ARCH-01) + SEC-01"
+generated_at_utc: "2026-08-17T03:55:00Z"
+
+# =============================================================
+# G1-09 Isolation Contract
+# selection/test namespace、principal、ACL 分离；
+# 禁止 test 结果反馈迭代 Agent。
+# =============================================================
+
+selection_namespace:
+  value: "PENDING_OWNER_DECISION"
+  recommended: "selection/iterative"
+  purpose: "逐轮选优所用 validation 指标"
+
+final_test_namespace:
+  value: "PENDING_OWNER_DECISION_SEPARATE"
+  recommended: "final-test/qa"
+  purpose: "独立验收所用 test 指标"
+  separated_from_selection: true
+
+principals:
+  iterative_principal:
+    value: "PENDING_OWNER_DECISION"
+    recommended: "DEV-ITERATIVE"
+  final_eval_principal:
+    value: "PENDING_OWNER_DECISION_SEPARATE"
+    recommended: "QA-01"
+    separated_from_iterative: true
+  committer_principal:
+    value: "PENDING_OWNER_DECISION_SEPARATE"
+    recommended: "DEV-VCS-01"
+    separated_from_iterative: true
+
+acl:
+  selection_test_acl_separated: true
+  selection_acl: "iterative_principal read/write"
+  test_acl: "final_eval_principal + owner read only"
+  test_acl_excludes_iterative: true
+
+feedback_control:
+  test_feedback_to_iterative_loop: false
+  test_result_visibility: "OWNER_AND_QA_ONLY"
+  note: >-
+    test 结果绝不回流逐轮迭代 Agent。validation 用于逐轮选优，
+    test 仅用于独立最终验收。违反即为硬约束违规。
+
+verification:
+  namespace_separation_machine_verifiable: true
+  principal_separation_machine_verifiable: true
+  acl_separation_machine_verifiable: true
