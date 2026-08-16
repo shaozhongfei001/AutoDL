@@ -1,57 +1,95 @@
 schema_version: "statistical-policy/v1"
 policy_id: "MVD-STATS-V1"
-status: "DRAFT_FOR_G1_REVIEW"
+status: "APPROVED_AS_AMENDED_D06"
 study_id: "STUDY-MVD-SH-QWEN-001"
-gate: "G1_CONTRACT_BASELINE_PREPARATION"
+gate: "G1_CONTRACT_BASELINE"
+owner_decision: "D06=REPLACE_WITH_PAIRED_STUDENT_T_ONE_SIDED_95_V1"
 generated_by: "TECH_LEAD (ARCH-01) + DEV-EVAL-01"
-generated_at_utc: "2026-08-17T03:55:00Z"
+updated_at_utc: "2026-08-17T04:35:00Z"
 
 # =============================================================
-# G1-06 Statistical Policy
-# 冻结 repeats、seeds、uncertainty、confidence policy、正且有限的 practical delta。
+# G1-06 Statistical Policy —— D-06 修订版
+# Owner 决定：禁止 2x pooled SE，改用 paired-delta Student-t policy。
 # =============================================================
 
-seeds:
-  value: "PENDING_OWNER_DECISION"   # 推荐 [17, 29, 43]
-  recommended: [17, 29, 43]
-  note: >-
-    seeds 用于配对实验；不同 candidate 使用相同 seed 集以保证配对比较。
-    不足 3 个配对 seed 时进入 HUMAN_REVIEW。
-
-repeats:
-  value: "PENDING_OWNER_DECISION"   # 推荐 3
-  minimum_repeats: 3
-
-uncertainty:
-  method: "PAIRED_SE_V1"
-  description: "配对标准误（paired standard error），基于同 seed 配对差值。"
-  unit: "same-as-primary-metric"
+# ---------------- 正式统计政策 ----------------
+uncertainty_method:
+  value: "PAIRED_SE_V1"
+  id: "UNCERTAINTY_METHOD"
 
 confidence_policy:
-  policy_id: "PENDING_OWNER_DECISION"   # 推荐 DIFFERENCE_EXCEEDS_2X_POOLED_SE
-  recommended: "DIFFERENCE_EXCEEDS_2X_POOLED_SE"
-  description: >-
-    差异置信：候选相对 baseline 的差值必须超过 2x 合并标准误（paired）
-    方判定为统计显著改进。
+  id: "CONFIDENCE_POLICY_ID"
+  value: "PAIRED_STUDENT_T_ONE_SIDED_95_V1"
 
-practical_delta:
-  value: "PENDING_OWNER_DECISION_POSITIVE_FINITE"
-  requirement: "POSITIVE_FINITE"
+pooled_se:
+  allowed: false
+  id: "POOLED_SE_ALLOWED"
+  value: "NO"
+
+fixed_2x_multiplier:
+  allowed: false
+  id: "FIXED_2X_MULTIPLIER_ALLOWED"
+  value: "NO"
+
+# ---------------- 计算定义（Owner 批准） ----------------
+computation:
+  pair_delta: "d_i = normalized_pair_delta(candidate_i, champion_i)"
+  mean_delta: "mean_delta = mean(d_i)"
+  standard_error: "SE = sample_std(d_i, ddof=1) / sqrt(n)"
+  uncertainty_margin: "uncertainty_margin = t_quantile(df=n-1, one_sided_confidence=0.95) × SE"
+  decision_bar: "decision_bar = max(min_practical_delta, uncertainty_margin)"
   note: >-
-    min_practical_delta 必须为正且有限。C8/C9 历史数据不得用于反推
-    practical delta（仅诊断）。最终值由 DEV-EVAL 校准后提交 Owner 决策。
+    candidate 与 champion 必须按相同 seed 计算差值（配对），
+    不能对两组原始观测做 pooled SE。
 
+# ---------------- 判定语义（保持 V3.0 原语义） ----------------
+decision:
+  improved: "mean_delta >= decision_bar      -> IMPROVED"
+  regression: "mean_delta <= -decision_bar    -> REGRESSION"
+  equivalent: "其他                             -> EQUIVALENT_OR_INCONCLUSIVE"
+
+# ---------------- 不充分证据处理 ----------------
 insufficient_evidence:
+  trigger: >-
+    任何 seed 不配对、n<3、非有限值或 SE 不可计算
+  bar_resolution: "BAR_RESOLUTION=INSUFFICIENT_EVIDENCE"
+  final_decision: "FINAL_DECISION=HUMAN_REVIEW"
   action: "HUMAN_REVIEW"
-  rule: "置信不足或 delta 不足时不做自动 KEEP，转 HUMAN_REVIEW"
 
+# ---------------- seeds & repeats（D-05 批准） ----------------
+seeds:
+  value: [17, 29, 43]
+  status: "APPROVED_D05"
+  id: "D05_SEEDS"
+
+repeats:
+  minimum_repeats: 3
+  status: "APPROVED_D05"
+  id: "D05_MINIMUM_REPEATS"
+
+# ---------------- practical delta（D-07 有条件批准） ----------------
+practical_delta:
+  value: 0.02
+  unit_registry_id: "NLL_NAT_PER_TOKEN_V1"
+  id: "MIN_PRACTICAL_DELTA"
+  status: "CONDITIONALLY_APPROVED_D07"
+  condition: >-
+    仅当 evaluator 明确使用自然对数、按有效 token 归一化的平均 NLL 时生效。
+    若当前 validation_loss 是 batch mean / sample mean / 其他 reduction，
+    必须重新定义单位和阈值，不得沿用 0.02 nats。
+  requirement: "POSITIVE_FINITE"
+  forbidden_source: "C8/C9 结果不得反推此值"
+
+# ---------------- fallback bar（OB-3） ----------------
 fallback_bar:
   value: null
   enabled: false
-  note: "fallback bar 保持 disabled（OB-3 未批准）。"
+  id: "FALLBACK_BAR_ENABLED"
+  value_flag: "NO"
 
+# ---------------- comparison 规则 ----------------
 comparison_rule:
   validation_selects: true
-  test_accepts: false_return_to_iterative
   test_used_for_selection: false
   test_feedback_to_iterative_agent: false
+  selection_test_separated: true

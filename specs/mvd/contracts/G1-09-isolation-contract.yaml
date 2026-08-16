@@ -13,28 +13,53 @@ generated_at_utc: "2026-08-17T03:55:00Z"
 # =============================================================
 
 selection_namespace:
-  value: "PENDING_OWNER_DECISION"
-  recommended: "selection/iterative"
+  value: "selection/iterative"            # D-10 APPROVED_AS_AMENDED
   purpose: "逐轮选优所用 validation 指标"
 
 final_test_namespace:
-  value: "PENDING_OWNER_DECISION_SEPARATE"
-  recommended: "final-test/qa"
+  value: "final-test/qa"
   purpose: "独立验收所用 test 指标"
   separated_from_selection: true
 
 principals:
   iterative_principal:
-    value: "PENDING_OWNER_DECISION"
-    recommended: "DEV-ITERATIVE"
+    value: "svc-mvd-iterative-v1"         # D-10 APPROVED_AS_AMENDED
   final_eval_principal:
-    value: "PENDING_OWNER_DECISION_SEPARATE"
-    recommended: "QA-01"
+    value: "svc-mvd-final-eval-v1"
     separated_from_iterative: true
+    note: "QA-01 不兼任 final-eval 运行主体；QA-01 仅 qa-01-readonly-review 只读审查"
   committer_principal:
-    value: "PENDING_OWNER_DECISION_SEPARATE"
-    recommended: "DEV-VCS-01"
+    value: "svc-mvd-committer-v1"
     separated_from_iterative: true
+  qa_principal:
+    value: "qa-01-readonly-review"
+    role: "只读证据 + 签署报告，不承担运行时生产职责"
+
+# D-10 权限边界
+principal_permissions:
+  svc_mvd_iterative_v1:
+    test_read: false
+    decision_write: false
+    champion_write: false
+    iterative_memory_write: true
+  svc_mvd_final_eval_v1:
+    test_read: true
+    decision_write: false
+    champion_write: false
+    iterative_memory_write: false
+  svc_mvd_committer_v1:
+    raw_metric_test_read: false
+    decision_write: true          # 仅接收已签名 FinalDecision
+    champion_write: true
+  qa_01_readonly_review:
+    evidence_read: true
+    decision_write: false
+    champion_write: false
+
+# G2 映射
+g2_mapping:
+  required: "把逻辑 principal 映射到可执行的 OS/service identity 和 ACL"
+  status: "PENDING_G2"
 
 acl:
   selection_test_acl_separated: true

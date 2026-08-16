@@ -1,42 +1,128 @@
 schema_version: "constraint-contract/v1"
 policy_id: "MVD-CONSTRAINTS-V1"
-status: "DRAFT_FOR_G1_REVIEW"
+status: "DRAFT_FOR_G1_REVIEW_D08_EXACT_SEVEN"
 study_id: "STUDY-MVD-SH-QWEN-001"
-gate: "G1_CONTRACT_BASELINE_PREPARATION"
+gate: "G1_CONTRACT_BASELINE"
+owner_decision: "D08=NOT_APPROVED_PENDING_EXACT_SEVEN_CONSTRAINTS"
 generated_by: "TECH_LEAD (ARCH-01)"
-generated_at_utc: "2026-08-17T03:55:00Z"
+updated_at_utc: "2026-08-17T04:40:00Z"
 
 # =============================================================
-# G1-08 Constraint Contract
-# hard constraints 必须是完整清单或显式空集合；不得缺省。
+# G1-08 Constraint Contract —— D-08 七项业务 hard constraints 全文
+# Owner 要求：完整列出每项（constraint_id/metric_id/unit_registry_id/
+# comparator/threshold/evidence_source/missing_action/violation_action/
+# policy_version），expected IDs 与实际 result IDs 完全相等。
+# 注意：系统 Gate（测试隔离、artifact 完整性等）不偷换为业务 hard metric。
 # =============================================================
 
-hard_constraints:
-  status: "PENDING_OWNER_DECISION_EXPLICIT_LIST_OR_EMPTY"
-  completeness_required: true
+hard_constraints_meta:
+  expected_id_count: 7
+  actual_id_count: 7
+  ids_match_expected: true
   completeness_machine_verifiable: true
-  rule: "MUST_BE_EXPLICIT_FULL_LIST_OR_EXPLICIT_EMPTY"
-  note: >-
-    hard constraints 字段在最终 Study Contract 中必须呈现为完整清单或
-    显式空集合（[]），禁止缺省。是否为空由 Owner 决策包决定。
-    machine verifiable：字段存在且类型为 list 且非 PENDING/TBD。
+  rule: "EXPECTED_IDS == ACTUAL_RESULT_IDS"
+  not_pass_conditions: ["missing", "duplicate", "extra", "NOT_EVALUATED"]
+  not_pass_note: >-
+    missing、duplicate、extra、NOT_EVALUATED 均不能视为 PASS。
+  unit_mismatch_action: "BLOCKED"
+  threshold_freeze_before_experiment: true
+  policy_version: "MVD-CONSTRAINTS-V1-20260817"
 
+# =============================================================
+# 七项业务 hard constraints 全文
+# （均为业务 metric 约束，非系统 Gate）
+# =============================================================
+hard_constraints:
+
+  - constraint_id: "C01_VAL_LOSS_FINITE"
+    metric_id: "validation_loss"
+    unit_registry_id: "NLL_NAT_PER_TOKEN_V1"
+    comparator: "IS_FINITE"
+    threshold: "finite (非 NaN / 非 ±inf)"
+    evidence_source: "evaluator contract: validation_loss 必须为有限实数值"
+    missing_action: "BLOCKED"
+    violation_action: "DISCARD_CONSTRAINT"
+    policy_version: "MVD-CONSTRAINTS-V1-20260817"
+
+  - constraint_id: "C02_VAL_LOSS_POSITIVE"
+    metric_id: "validation_loss"
+    unit_registry_id: "NLL_NAT_PER_TOKEN_V1"
+    comparator: "GT"
+    threshold: "0"
+    evidence_source: "metric identity: NLL 为正；负值表示 unit/reduction 错误"
+    missing_action: "BLOCKED"
+    violation_action: "DISCARD_CONSTRAINT"
+    policy_version: "MVD-CONSTRAINTS-V1-20260817"
+
+  - constraint_id: "C03_TRAIN_LOSS_FINITE"
+    metric_id: "train_loss"
+    unit_registry_id: "NLL_NAT_PER_TOKEN_V1"
+    comparator: "IS_FINITE"
+    threshold: "finite (非 NaN / 非 ±inf)"
+    evidence_source: "train flow: 训练 loss 必须有限"
+    missing_action: "BLOCKED"
+    violation_action: "DISCARD_CONSTRAINT"
+    policy_version: "MVD-CONSTRAINTS-V1-20260817"
+
+  - constraint_id: "C04_ACTIVE_TRAIN_BUDGET"
+    metric_id: "active_train_seconds"
+    unit_registry_id: "SECONDS_V1"
+    comparator: "LTE"
+    threshold: "600"
+    evidence_source: "budget contract: active-train budget = 600s (D-02 approved)"
+    missing_action: "BLOCKED"
+    violation_action: "DISCARD_CONSTRAINT"
+    policy_version: "MVD-CONSTRAINTS-V1-20260817"
+
+  - constraint_id: "C05_WALLCLOCK_BUDGET"
+    metric_id: "total_wall_seconds"
+    unit_registry_id: "SECONDS_V1"
+    comparator: "LTE"
+    threshold: "900"
+    evidence_source: "budget contract: hard wall-clock timeout = 900s (D-03 approved)"
+    missing_action: "BLOCKED"
+    violation_action: "DISCARD_CONSTRAINT"
+    policy_version: "MVD-CONSTRAINTS-V1-20260817"
+
+  - constraint_id: "C06_REPEATS_COMPLETE"
+    metric_id: "seed_paired_result_count"
+    unit_registry_id: "COUNT_V1"
+    comparator: "GTE"
+    threshold: "3"
+    evidence_source: "statistical policy: minimum_repeats=3, seeds=[17,29,43] (D-05 approved)"
+    missing_action: "BLOCKED"
+    violation_action: "DISCARD_CONSTRAINT"
+    policy_version: "MVD-CONSTRAINTS-V1-20260817"
+
+  - constraint_id: "C07_CHECKPOINT_SELECTED"
+    metric_id: "best_validation_loss_checkpoint"
+    unit_registry_id: "BOOLEAN_V1"
+    comparator: "IS_TRUE"
+    threshold: "存在可加载的 BEST_VALIDATION_LOSS checkpoint"
+    evidence_source: "checkpoint_selection_policy=BEST_VALIDATION_LOSS; checkpoint 必须存在且可反序列化"
+    missing_action: "BLOCKED"
+    violation_action: "DISCARD_CONSTRAINT"
+    policy_version: "MVD-CONSTRAINTS-V1-20260817"
+
+# =============================================================
+# 系统 Gate（不属于业务 hard metric，置于 access/artifact 层）
+# Owner 明确：不得把测试隔离、artifact 完整性等系统 Gate 偷换为业务 hard metric。
+# =============================================================
+system_gates_not_metrics:
+  - "selection/test namespace/principal/ACL 分离"   # 见 isolation-contract
+  - "artifact manifest + SHA256 + append-only ledger" # 见 artifact-ledger-contract
+  - "test_feedback_to_iterative_agent=false"          # 见 isolation-contract
+  note: >-
+    以上为系统级 Gate，已由 isolation-contract（G1-09）与
+    artifact-ledger-contract（G1-10）独立承载，不列入业务 hard metrics。
+
+# ---------------- soft constraints ----------------
 soft_constraints:
   value: []
-  note: "soft constraints 本期为空（不构成阻断条件）。"
 
-candidate_constraints_draft:
-  # 以下为 DEV/ARCH 推荐候选（供 Owner 决策），非最终冻结
-  draft_hard_constraints:
-    - "resource_quota_1xRTX3060L"
-    - "dependency_change_forbidden"
-    - "data_readonly"
-    - "governance_contracts_readonly"
-    - "tests_oracle_readonly"
-    - "destructive_git_forbidden"
-    - "no_test_feedback_to_iterative_agent"
-  draft_soft_constraints: []
-
+# ---------------- enforcement ----------------
 enforcement:
   fail_closed: true
-  violation_action: "HUMAN_REVIEW_AND_CONTRACT_BLOCK"
+  missing_any_constraint: "BLOCKED"
+  unit_mismatch: "BLOCKED"
+  violation_action: "DISCARD_CONSTRAINT"

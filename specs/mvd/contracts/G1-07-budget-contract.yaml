@@ -1,20 +1,19 @@
 schema_version: "budget-contract/v1"
 policy_id: "MVD-BUDGET-V1"
-status: "DRAFT_FOR_G1_REVIEW"
+status: "APPROVED_D02_D03_D04"
 study_id: "STUDY-MVD-SH-QWEN-001"
-gate: "G1_CONTRACT_BASELINE_PREPARATION"
+gate: "G1_CONTRACT_BASELINE"
+owner_decision: "D02=APPROVED_ACTIVE_TRAIN_SECONDS_600; D03=APPROVED_HARD_WALL_CLOCK_SECONDS_900; D04=APPROVED_AS_COHORT_RTX3060L_6G_V1_WITH_MANIFEST_HASH"
 generated_by: "TECH_LEAD (ARCH-01) + DEV-RUN-01"
-generated_at_utc: "2026-08-17T03:55:00Z"
+updated_at_utc: "2026-08-17T05:25:00Z"
 
 # =============================================================
-# G1-07 Budget Contract
-# 分离 active-train budget 与 hard wall-clock timeout。
-# 历史 300/420 只能作为候选证据，不直接成为生产事实。
+# G1-07 Budget Contract —— D-02/D-03/D-04 已批准
 # =============================================================
 
 active_train_budget:
   mode: "active_train_seconds"
-  limit_seconds: "PENDING_OWNER_DECISION"    # 推荐见 Owner 决策包
+  limit_seconds: 600                        # D-02 APPROVED_ACTIVE_TRAIN_SECONDS_600
   timing_policy_id: "MONOTONIC_ACTIVE_TRAIN_V1"
   timer: "monotonic"
   queue_in_active_budget: false
@@ -22,14 +21,23 @@ active_train_budget:
   compile_in_active_budget: false
   warmup_in_active_budget: false
   note: >-
-    active-train budget 仅统计纯训练（含 warmup 排除策略），
+    active-train budget 仅统计纯训练（含 warmup 排除），
     不计 queue/setup/compile/evaluation/artifact finalize。
 
 hard_wall_clock_timeout:
-  limit_seconds: "PENDING_OWNER_DECISION"   # 推荐见 Owner 决策包
-  note: >-
-    hard wall-clock timeout 是绝对上限，超出即强制终止训练进程。
-    独立于 active-train budget，防止悬挂。
+  limit_seconds: 900                        # D-03 APPROVED_HARD_WALL_CLOCK_SECONDS_900
+  note: "hard wall-clock timeout 是绝对上限，超出即强制终止训练进程。"
+
+hardware_cohort:
+  cohort_id: "COHORT-RTX3060L-6G-V1"        # D-04 修订后批准
+  accelerator_model: "NVIDIA GeForce RTX 3060 Laptop GPU"
+  accelerator_count: 1
+  vram_gb: 6
+  driver: "555.42.02"
+  cuda_driver: "12.5"
+  os: "Ubuntu 22.04.4 LTS"
+  manifest_hash: "PENDING_HW_MANIFEST"      # D-04 必须绑定完整硬件/软件 manifest hash
+  note: "COHORT 升级为 -V1 版本，必须绑定完整硬件/软件 manifest hash 方可生效。"
 
 required_time_events:
   - queue_seconds
@@ -45,8 +53,6 @@ historical_budget:
   active_300_seconds: "CANDIDATE_EVIDENCE_ONLY"
   wallclock_420_seconds: "CANDIDATE_EVIDENCE_ONLY"
   can_be_production_fact: false
-  note: >-
-    历史 300/420 仅作为候选证据。最终 active budget / hard timeout
-    由 G0/G1 环境测量提出，经 Owner 决策后冻结。
+  note: "历史 300/420 仅候选证据，最终值已由 Owner 决策为 600/900。"
 
 missing_owner_decision_action: "HUMAN_REVIEW"

@@ -1,51 +1,52 @@
 schema_version: "metric-identity/v1"
 policy_id: "MVD-METRIC-IDENTITY-V1"
-status: "DRAFT_FOR_G1_REVIEW"
+status: "APPROVED_AS_AMENDED_D04_D07"
 study_id: "STUDY-MVD-SH-QWEN-001"
-gate: "G1_CONTRACT_BASELINE_PREPARATION"
+gate: "G1_CONTRACT_BASELINE"
+owner_decision: "D04=APPROVED_AS_COHORT_RTX3060L_6G_V1_WITH_MANIFEST_HASH; D07=CONDITIONALLY_APPROVED_0_02_NAT_PER_TOKEN"
 generated_by: "TECH_LEAD (ARCH-01) + DEV-EVAL-01"
-generated_at_utc: "2026-08-17T03:55:00Z"
+updated_at_utc: "2026-08-17T05:25:00Z"
 
 # =============================================================
-# G1-05 Metric Identity
-# 冻结 dataset/split/preprocess/evaluator/unit/direction/aggregation/
-# checkpoint-selection/hardware cohort。
+# G1-05 Metric Identity —— D-04/D-07 修订
 # =============================================================
 
 primary_metric:
   metric_id: "validation_loss"
   direction: "MINIMIZE"
-  unit: "PENDING_OWNER_DECISION"   # 推荐 nats
-  evaluator_hash: "PENDING_OWNER_DECISION"
+  unit: "NLL_NAT_PER_TOKEN_V1"              # D-07 限定
+  unit_registry_id: "NLL_NAT_PER_TOKEN_V1"
+  unit_definition: >-
+    自然对数（ln）、按有效 token 归一化的平均 NLL。
+    若 validation_loss 是 batch mean / sample mean / 其他 reduction，
+    必须重新定义单位与阈值，不得沿用 0.02 nats。
+  evaluator_hash: "PENDING_EVALUATOR_HASH"
   aggregation: "PAIRED_MEAN_V1"
   checkpoint_selection: "BEST_VALIDATION_LOSS"
-  note: >-
-    checkpoint_selection=BEST_VALIDATION_LOSS：从 validation 指标最低的
-    checkpoint 取指标，用于逐轮选优与最终验收。
 
 dataset_identity:
-  dataset_name: "alpaca-cleaned"
-  dataset_fingerprint: "PENDING_OWNER_DECISION"
+  dataset_name: "yahma/alpaca-cleaned"
+  dataset_fingerprint: "PENDING_DATASET_EVIDENCE_CLOSURE"   # D-12
 
 split_identity:
-  train: "PENDING_OWNER_DECISION"
-  validation: "PENDING_OWNER_DECISION"
-  test: "PENDING_OWNER_DECISION"
+  train: "PENDING_DATASET_EVIDENCE_CLOSURE"
+  validation: "PENDING_DATASET_EVIDENCE_CLOSURE"
+  final_test: "PENDING_EXISTENCE"   # 需新增独立 final-test split
 
 preprocess_identity:
-  preprocess_hash: "PENDING_OWNER_DECISION"
+  preprocess_hash: "PENDING_DATASET_EVIDENCE_CLOSURE"
   tokenizer: "Qwen2.5-0.5B"
-  tokenizer_hash: "PENDING_OWNER_DECISION"
+  tokenizer_hash: "PENDING_DATASET_EVIDENCE_CLOSURE"
 
 evaluator_identity:
-  evaluator_hash: "PENDING_OWNER_DECISION"
-  test_evaluator_hash: "PENDING_OWNER_DECISION"
+  evaluator_hash: "PENDING_EVALUATOR_HASH"
+  test_evaluator_hash: "PENDING_EVALUATOR_HASH"
 
 hardware_cohort:
-  cohort_id: "PENDING_OWNER_DECISION"
-  recommended: "COHORT-RTX3060L-6G"
+  cohort_id: "COHORT-RTX3060L-6G-V1"        # D-04
   accelerator: "NVIDIA GeForce RTX 3060 Laptop GPU"
   count: 1
+  manifest_hash: "PENDING_HW_MANIFEST"
   comparability_requires_exact_cohort: true
 
 identity_freeze_declaration:
@@ -62,7 +63,7 @@ identity_freeze_declaration:
 secondary_metrics:
   - metric_id: "train_loss"
     direction: "MINIMIZE"
-    unit: "nats"
+    unit: "NLL_NAT_PER_TOKEN_V1"
   - metric_id: "validation_accuracy"
     direction: "MAXIMIZE"
     unit: "percentage_point"
@@ -71,5 +72,5 @@ secondary_metrics:
     unit: "seconds"
 
 note: >-
-  单一 metric identity 保证跨 candidate 的公平比较与可复现。
-  C8/C9 历史数据（0.7723/0.9188）仅作诊断与 replay，不建立 metric baseline。
+  单一 metric identity 保证公平比较。C8/C9 历史数据仅诊断/replay，
+  不建立 metric baseline，不反推 practical delta。
