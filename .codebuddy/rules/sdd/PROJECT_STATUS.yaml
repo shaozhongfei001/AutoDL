@@ -19,8 +19,16 @@ authority:
   unattended_24x7_authorized: false
   production_ready: false
   frozen: false
-current_gate: "G3_MACHINE_JUDGE_LOOP_IMPLEMENTED"
-current_phase: "LE_REFINE_MACHINE_JUDGE_COMPLETE"
+current_gate: "G0_EVIDENCE_CLOSURE_CLOSED"
+current_phase: "MVD_V3_G0_CLOSED"
+gate_status:
+  G0_STATUS: "PASS (CLOSED)"
+  g0_qa_signoff: "QA-01 (EVD-G0-020-QA01-Signoff.md, PASS)"
+  g0_four_role_review: "QA-01/SEC-01/DEV-VCS-01/DEV-EVAL-01 all PASS"
+  g0_head_commit: "19b7e8f"
+  g0_evidence_dir: "evidence/mvd/g0/"
+  g0_corrected_deviation: "EVD-G0-012 pydantic NOT_PRESENT->PRESENT 2.13.4 (SEC-01 found, cda2de9 corrected, QA-01 re-verified)"
+  g1_pending: "pydantic+pyright dual-env freeze; C8 0.7723 not V3 baseline; metric identity/Study Contract/hard constraints freeze"
 max_parallel_for_first_pilot: 1
 dev_loop_engineering_mandate:
   contract_added: true
