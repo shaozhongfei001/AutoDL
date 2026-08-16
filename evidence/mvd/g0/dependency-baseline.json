@@ -12,10 +12,11 @@
     "torch": "2.3.0+cu121",
     "transformers": "4.41.2",
     "datasets": "2.19.1",
-    "loguru": "0.7.3",
-    "pyyaml": "present (>=6.0)",
-    "pydantic": "NOT_PRESENT (not a current dependency; required by V3.0 strict contracts at a later gate)"
+    "loguru": "0.7.3 (in .venv 3.10.12; NOT in anaconda base 3.11.7)",
+    "pyyaml": "6.0.1 (>=6.0)",
+    "pydantic": "2.13.4 (PRESENT in both anaconda base 3.11.7 and .venv 3.10.12; likely transitive from sentence-transformers experimental deps)",
+    "pyright": "1.1.409 (PRESENT, executable /home/szf/anaconda3/bin/pyright; installed for V3.0 strict-contract dev work)"
   },
-  "status": "CONFIRMED",
-  "notes": "Runtime is anaconda python 3.11.7 with torch 2.3.0+cu121. requirements.txt SHA captured. pydantic v2 + pyright strict are NOT yet installed; they are a V3.0 F1 requirement, not part of G0."
+  "status": "CORRECTED_AFTER_SEC01_REVIEW",
+  "notes": "Runtime is anaconda python 3.11.7 with torch 2.3.0+cu121. requirements.txt SHA captured. CORRECTION (2026-08-17): SEC-01 review verified pydantic 2.13.4 and pyright 1.1.409 are ACTUALLY PRESENT in the environment, contradicting this file's original NOT_PRESENT record. Corrected per SDD 'machine facts over narrative'. V3.0 strict contracts (pydantic v2 + pyright) therefore require NO additional install, but their presence must be reconciled at G1/Gate 1, not assumed absent."
 }
