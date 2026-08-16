@@ -1,0 +1,31 @@
+{
+  "evidence_id": "EVD-G0-010",
+  "title": "Repository Baseline",
+  "owner": "MAIN-00",
+  "collected_by": "CodeBuddy (Tech Lead / ARCH-01)",
+  "collected_at_utc": "2026-08-16T16:40:00Z",
+  "gate": "G0_EVIDENCE_CLOSURE",
+  "facts": {
+    "absolute_path": "/home/szf/env/AutoDL",
+    "remote_url": "git@github.com:shaozhongfei001/AutoDL.git",
+    "branch": "main",
+    "head_sha": "83e41c13e1032b02548d445dd3234ae127d03311",
+    "head_sha_short": "83e41c1",
+    "tag": "none",
+    "head_commit_time": "2026-08-16 22:04:01 +0800",
+    "last_commit_message": "docs: machine-verdict-diagnosis design review chain (V1→V2→V2.1→V2.2)",
+    "post_stop_head_sha": "83e41c13e1032b02548d445dd3234ae127d03311",
+    "post_stop_branch": "main",
+    "post_stop_confirmed_at_utc": "2026-08-17T02:30:28Z",
+    "governance_branch": "governance/mvd-v3-baseline",
+    "governance_branch_method": "GIT_WORKTREE_ADD_NEW_BRANCH (owner-authorized)",
+    "governance_worktree": "/home/szf/env/AutoDL_governance",
+    "governance_base": "83e41c13e1032b02548d445dd3234ae127d03311",
+    "governance_baseline_commit": "962f3329d7782dc751480342a65606a1dd308ada",
+    "governance_normative_commit": "5866d20",
+    "governance_evidence_commit": "962f332",
+    "post_commit_288_test": "288 passed in 2.63s (governance branch, no regression)"
+  },
+  "status": "CONFIRMED",
+  "notes": "Base commit 83e41c1. Governance branch created via GIT_WORKTREE_ADD_NEW_BRANCH (owner-authorized). NORMATIVE docs committed at 5866d20; evidence reclassification committed at 962f332; 288 tests re-run and passed post-commit. Main branch unchanged (SOURCE_CODE_CHANGES_AUTHORIZED=NO)."
+}

@@ -1,0 +1,21 @@
+{
+  "evidence_id": "EVD-G0-012",
+  "title": "Dependency Baseline",
+  "owner": "SEC-01",
+  "collected_by": "CodeBuddy (Tech Lead / ARCH-01)",
+  "collected_at_utc": "2026-08-16T16:40:00Z",
+  "gate": "G0_EVIDENCE_CLOSURE",
+  "facts": {
+    "requirements_txt_sha256": "8c390592e17a5589bc80be465a43fdff850e975bb667de698bb5e3e0eb78c943",
+    "python_anaconda": "3.11.7",
+    "python_venv": "3.10.12",
+    "torch": "2.3.0+cu121",
+    "transformers": "4.41.2",
+    "datasets": "2.19.1",
+    "loguru": "0.7.3",
+    "pyyaml": "present (>=6.0)",
+    "pydantic": "NOT_PRESENT (not a current dependency; required by V3.0 strict contracts at a later gate)"
+  },
+  "status": "CONFIRMED",
+  "notes": "Runtime is anaconda python 3.11.7 with torch 2.3.0+cu121. requirements.txt SHA captured. pydantic v2 + pyright strict are NOT yet installed; they are a V3.0 F1 requirement, not part of G0."
+}

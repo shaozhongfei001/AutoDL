@@ -1,0 +1,35 @@
+{
+  "evidence_id": "EVD-G0-019-STOP",
+  "title": "Pilot Graceful-Stop State Capture",
+  "owner": "MAIN-00",
+  "prepared_by": "CodeBuddy (Tech Lead / ARCH-01)",
+  "prepared_at_utc": "2026-08-17T02:30:28Z",
+  "gate": "G0_EVIDENCE_CLOSURE",
+  "facts": {
+    "head_sha": "83e41c13e1032b02548d445dd3234ae127d03311",
+    "branch": "main",
+    "main_loop_pid": 1658788,
+    "main_loop_state": "EXITED_GRACEFULLY",
+    "main_loop_signal": "SIGTERM (received 2026-08-16 01:06:04, _running=False)",
+    "residual_processes": "NONE",
+    "last_cycle": 9,
+    "cycle9": {
+      "experiment_pid": 263475,
+      "validation_loss": 0.9188,
+      "machine_verdict": "DISCARD",
+      "contract": "SUCCESS",
+      "active_train_seconds": 11700.49,
+      "note": "C9 completed + archived; loop exited; NO C10 was started"
+    },
+    "cycle8_legacy_champion": {
+      "validation_loss": 0.7723,
+      "legacy_verdict": "KEEP",
+      "v3_normative_decision": "PENDING_G1",
+      "v3_champion_authority": "NO"
+    },
+    "ledger_head": "cycle 9, experiments.jsonl total 18 records",
+    "worktree_untracked_or_modified": 8
+  },
+  "status": "CONFIRMED",
+  "notes": "Pilot stopped gracefully at a safe cycle boundary: C9 completed its terminal archive, the main loop exited (no C10 started), no residual processes. C8 legacy champion (validation_loss 0.7723) is recorded with V3_NORMATIVE_DECISION=PENDING_G1 and V3_CHAMPION_AUTHORITY=NO, per Owner decision."
+}

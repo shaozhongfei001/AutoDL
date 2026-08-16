@@ -1,0 +1,25 @@
+{
+  "evidence_id": "EVD-G0-019-ADD-C8",
+  "title": "Cycle 8 Append-Only Fixture Addendum",
+  "owner": "MAIN-00",
+  "prepared_by": "CodeBuddy (Tech Lead / ARCH-01)",
+  "prepared_at_utc": "2026-08-17T01:15:00Z",
+  "gate": "G0_EVIDENCE_CLOSURE",
+  "base_fixture_ref": "EVD-G0-019 (C1-C8 fixture manifest)",
+  "addendum_scope": "C8 only. Created because the pilot produced Cycle 8 AFTER the nominal C1-C7 freeze; it is NOT part of the frozen C1-C7 replay assertions.",
+  "cycle": 8,
+  "source": {
+    "experiment_pid": 3987621,
+    "completed_at": "2026-08-16T22:56:05Z",
+    "active_train_seconds": 8625,
+    "epochs_observed": "2"
+  },
+  "legacy_facts": {
+    "LEGACY_VERDICT": "KEEP",
+    "VALIDATION_LOSS": 0.7723,
+    "V3_NORMATIVE_DECISION": "PENDING_G1",
+    "V3_CHAMPION_AUTHORITY": "NO"
+  },
+  "owner_ruling": "C8 validation_loss 0.7723 must NOT directly become a V3 formal baseline or prove V3 should KEEP, because metric identity, repeated experiments, uncertainty, Study Contract, and hard constraints are NOT yet frozen (G1 pending).",
+  "status": "APPEND_ONLY"
+}

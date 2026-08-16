@@ -1,0 +1,27 @@
+{
+  "evidence_id": "EVD-G0-014",
+  "title": "Source Index (core modules)",
+  "owner": "ARCH-01",
+  "collected_by": "CodeBuddy (Tech Lead / ARCH-01)",
+  "collected_at_utc": "2026-08-16T16:40:00Z",
+  "gate": "G0_EVIDENCE_CLOSURE",
+  "facts": {
+    "modules": [
+      {"path": "core/loop.py", "lines": 1212, "sha256_prefix": "4df78362f20b63c9"},
+      {"path": "core/execution.py", "lines": 1189, "sha256_prefix": "29ed313f8a96a513"},
+      {"path": "core/monitor.py", "lines": 472, "sha256_prefix": "b62b02ecc8cd4b56"},
+      {"path": "core/ledger.py", "lines": 251, "sha256_prefix": "dc7eb1035ec8ac58"},
+      {"path": "core/git_vcs.py", "lines": 234, "sha256_prefix": "831548f7ce31abc5"},
+      {"path": "core/tools.py", "lines": 697, "sha256_prefix": "bdf21439840cb40e"},
+      {"path": "core/agents.py", "lines": 802, "sha256_prefix": "6f36dbbca827e6ac"},
+      {"path": "core/experiment_contract.py", "lines": 464, "sha256_prefix": "7ac7884fb4afa852"}
+    ],
+    "key_entrypoints": {
+      "machine_judge": "core/loop.py:416-535 (inline decide_verdict + gate + archive + promote + ledger + convergence)",
+      "decide_verdict": "core/experiment_contract.py",
+      "git_vcs": "core/git_vcs.py:48 (_git call), promote elsewhere"
+    }
+  },
+  "status": "CONFIRMED",
+  "notes": "core/ modules sized and hashed at base commit 83e41c1. The current _machine_judge is an inline monolith (416-535); V3.0 requires it to become an orchestration shell. These modules may only be changed on the integration branch AFTER G3."
+}

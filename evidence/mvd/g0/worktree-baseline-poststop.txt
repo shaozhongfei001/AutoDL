@@ -1,0 +1,34 @@
+EVD-G0-011-poststop Worktree Baseline (post-pilot-stop)
+Owner: MAIN-00
+Collected by: CodeBuddy (Tech Lead / ARCH-01)
+Collected at UTC: 2026-08-17T02:30:28Z
+Gate: G0_EVIDENCE_CLOSURE
+
+At pilot graceful stop, `git status --porcelain=v1` reports 8 untracked/modified entries.
+
+Untracked entries (pre-existing + pilot artifacts + G0 evidence):
+  contracts/phases/DESIGN-REVIEW/AutoResearch_Machine_Verdict_Diagnosis_Final_Architecture_V3.0_20260816.md   [APPROVED - governance commit target]
+  contracts/phases/DESIGN-REVIEW/MVD_Delivery_Plan_GL1_G3_TechLead_20260816.md                              [SUPERSEDED by V1.1]
+  contracts/phases/DESIGN-REVIEW/MVD_V3_Complete_Delivery_Execution_Plan_V1.1_20260816.md                  [APPROVED - governance commit target]
+  contracts/phases/DESIGN-REVIEW/MVD_V3_Owner_Decision_Record_ODR-MVD-20260816-001.md                      [APPROVED - governance commit target]
+  contracts/phases/DESIGN-REVIEW/Machine_Verdict_Diagnosis_Design_V2.2_Third_Review_V1.0_20260816.md       [NON_NORMATIVE review -> reviews/]
+  contracts/phases/DESIGN-REVIEW/完整交付计划 V1.1-用于替代原 Tech Lead V1.0提示词.md                      [WITHDRAWN / duplicate upload]
+  examples/mnist_gpu/train_v42.py                                                                          [legacy untracked, not part of round]
+  evidence/                                                                                                 [G0 evidence closure output]
+
+PILOT ARTIFACTS (in examples/llm_finetune/, untracked, not committed):
+  workspace/experiments.jsonl (18 records, ledger head cycle 9)
+  workspace/logs/ (C1-C9 experiment logs)
+  workspace/model_ft_cycleN/ (trained models, .gitignore'd)
+
+GOVERNANCE_BRANCH_RESOLVED (2026-08-17T02:45Z):
+  governance/mvd-v3-baseline created via GIT_WORKTREE_ADD_NEW_BRANCH at /home/szf/env/AutoDL_governance
+  NORMATIVE commit: 5866d20 (3 approved docs + classification manifest)
+  EVIDENCE commit:  962f332 (reviews/ NON_NORMATIVE + superseded/ classification)
+  Post-commit 288 tests: PASSED (2.63s, no regression)
+  Main branch unchanged; no source code changes; no wildcard git add.
+
+  The 3 approved governance docs (V3.0 / V1.1 / ODR) are now committed ONLY to the
+  governance branch. They remain untracked on main (NOT committed to main).
+
+STATUS: CONFIRMED (facts as observed post-stop; governance branch established and approved docs committed to it)
