@@ -1,0 +1,28 @@
+{
+  "evidence_id": "EVD-G0-013",
+  "title": "Test Baseline",
+  "owner": "QA-01",
+  "collected_by": "CodeBuddy (Tech Lead / ARCH-01)",
+  "collected_at_utc": "2026-08-16T16:40:00Z",
+  "gate": "G0_EVIDENCE_CLOSURE",
+  "facts": {
+    "command": "PYTHONPATH=. .venv/bin/python -m pytest tests/ -q",
+    "collected": 288,
+    "passed": 288,
+    "failed": 0,
+    "skipped": 0,
+    "duration_seconds": 6.25,
+    "collect_duration_seconds": 0.85,
+    "post_stop_rerun": {
+      "collected": 288,
+      "passed": 288,
+      "failed": 0,
+      "skipped": 0,
+      "duration_seconds": 2.64,
+      "at_utc": "2026-08-17T02:30:30Z"
+    },
+    "base_commit": "83e41c13e1032b02548d445dd3234ae127d03311"
+  },
+  "status": "CONFIRMED",
+  "notes": "288 tests passed at base commit 83e41c1 (initial 6.25s) and re-confirmed 288 passed (2.64s) after the pilot graceful stop. This is a project-level baseline; it does NOT include MVD V3.0 tests (none exist yet, IMPLEMENTATION_AUTHORIZED=NO)."
+}

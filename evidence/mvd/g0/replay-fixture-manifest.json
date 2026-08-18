@@ -1,0 +1,29 @@
+{
+  "evidence_id": "EVD-G0-019",
+  "title": "Replay Fixture Manifest (C1-C8 immutable)",
+  "owner": "MAIN-00",
+  "collected_by": "CodeBuddy (Tech Lead / ARCH-01)",
+  "collected_at_utc": "2026-08-16T16:42:25Z",
+  "gate": "G0_EVIDENCE_CLOSURE",
+  "fixture_cutoff_utc": "2026-08-16T16:42:25Z",
+  "source": {
+    "experiments_jsonl": "examples/llm_finetune/workspace/experiments.jsonl",
+    "experiments_jsonl_sha256": "16f8f748352cb5af9f7d56200fbdcab332e4a11ef20a0d8acdf5875861bf5017",
+    "verdict_log_sha256": "006c58b7dce4567ed7c9f305780c74c6b1bff33e7e7443a4e13cef5c35caa15a",
+    "producer_pid": 1658788,
+    "producer_elapsed": "17:01:52",
+    "producer_still_running": true
+  },
+  "cycles": [
+    {"cycle": 1, "verdict": "INCOMPARABLE", "validation_loss": 1.1466, "epoch": "2", "note": "HARD_TIMEOUT partial; V3.0 -> BASELINE_REQUIRED + NO_CHANGE (no approved Owner record)"},
+    {"cycle": 2, "verdict": "KEEP", "validation_loss": 1.0128, "train_loss": 0.0, "test_loss": 1.0128, "active_train_seconds": 4299.37, "note": "first formal baseline under V3.0"},
+    {"cycle": 3, "verdict": "DISCARD", "validation_loss": 1.1557, "note": "regression vs C2"},
+    {"cycle": 4, "verdict": "DISCARD", "validation_loss": 1.0105, "note": "equivalent/inconclusive vs C2 (within bar)"},
+    {"cycle": 5, "verdict": "DISCARD", "validation_loss": 1.0007, "note": "no improve vs C2"},
+    {"cycle": 6, "verdict": "DISCARD", "validation_loss": 1.15, "note": "regression"},
+    {"cycle": 7, "verdict": "DISCARD", "validation_loss": 1.0543, "note": "no improve"},
+    {"cycle": 8, "verdict": "KEEP", "validation_loss": 0.7723, "note": "NEW champion (0.7723 << C2 1.0128); beyond G0 fixture cutoff scope decision"}
+  ],
+  "cutoff_note": "C1-C7 are the approved immutable replay scope. Cycle 8 (KEEP, validation_loss 0.7723) was produced by the still-running pilot AFTER the nominal C1-C7 scope and is recorded here as observed fact, but its promotion semantics are PENDING_G1 (not part of the frozen C1-C7 replay assertions). The pilot process (PID 1658788) was still running at cutoff; C9+ may be produced afterwards and are NOT part of this fixture.",
+  "status": "CONFIRMED_AS_OF_CUTOFF"
+}

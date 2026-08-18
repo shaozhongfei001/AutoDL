@@ -1,0 +1,26 @@
+EVD-G0-011 Worktree Baseline
+Owner: MAIN-00
+Collected by: CodeBuddy (Tech Lead / ARCH-01)
+Collected at UTC: 2026-08-16T16:40:00Z
+Gate: G0_EVIDENCE_CLOSURE
+
+`git status --porcelain=v1` at collection time:
+?? contracts/phases/DESIGN-REVIEW/AutoResearch_Machine_Verdict_Diagnosis_Final_Architecture_V3.0_20260816.md
+?? contracts/phases/DESIGN-REVIEW/MVD_Delivery_Plan_GL1_G3_TechLead_20260816.md
+?? contracts/phases/DESIGN-REVIEW/MVD_V3_Complete_Delivery_Execution_Plan_V1.1_20260816.md
+?? contracts/phases/DESIGN-REVIEW/MVD_V3_Owner_Decision_Record_ODR-MVD-20260816-001.md
+?? contracts/phases/DESIGN-REVIEW/Machine_Verdict_Diagnosis_Design_V2.2_Third_Review_V1.0_20260816.md
+?? contracts/phases/DESIGN-REVIEW/<completion plan V1.1-…>（含中文名，见 utf-8 原始输出）
+?? examples/mnist_gpu/train_v42.py
+
+Untracked-file count: 7
+Modified-tracked-file count: 0
+
+CRITICAL OBSERVATION:
+- The worktree contains 7 UNTRACKED files, including the V3.0 final architecture,
+  the V1.1 delivery plan, the Owner Decision Record, and the V2.2 third-review report.
+  These were placed into the worktree but are NOT yet `git add`/`git commit`-ed.
+- This means the authoritative design documents are NOT yet under version control.
+- examples/mnist_gpu/train_v42.py is a legacy untracked file (pre-existing, not part of this round).
+
+Status: CONFIRMED (facts as observed; untracked docs are a known gap to be resolved at a later gate, not silently committed under G0 without authorization)
