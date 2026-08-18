@@ -1,0 +1,25 @@
+{
+  "manifest_id": "HW-MANIFEST-RTX3060L-6G-V1-20260818",
+  "cohort_id": "COHORT-RTX3060L-6G-V1",
+  "status": "D04_APPROVED_AS_COHORT_RTX3060L_6G_V1_WITH_MANIFEST_HASH",
+  "gate": "G1_CONTRACT_BASELINE",
+  "collected_at_utc": "2026-08-18T23:25:00Z",
+  "hardware": {
+    "accelerator_name": "NVIDIA GeForce RTX 3060 Laptop GPU",
+    "gpu_uuid": "GPU-89b82bc6-ec13-d150-336f-93d05e6998e1",
+    "gpu_bus_id": "00000000:01:00.0",
+    "memory_total_mib": 6144,
+    "compute_capability": "8.6",
+    "driver_version": "555.42.02",
+    "cuda_driver": "12.5"
+  },
+  "software_baseline": {
+    "canonical_runtime": "/home/szf/env/AutoDL/.venv/bin/python",
+    "python_version": "3.10.12",
+    "torch": "2.5.0+cu124",
+    "torchvision": "0.20.0+cu124",
+    "cuda_runtime": "12.4"
+  },
+  "comparability_rule": "MUST_MATCH_COHORT_RTX3060L_6G_V1",
+  "change_rule": "COHORT_DRIFT_REQUIRES_NEW_MANIFEST_AND_GATE_RECHECK"
+}

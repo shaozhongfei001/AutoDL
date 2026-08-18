@@ -1,0 +1,46 @@
+schema_version: "profile-baseline/v1"
+policy_id: "MVD-PROFILE-V1"
+status: "DRAFT_FOR_G1_REVIEW"
+study_id: "STUDY-MVD-SH-QWEN-001"
+gate: "G1_CONTRACT_BASELINE_PREPARATION"
+generated_by: "TECH_LEAD (ARCH-01)"
+generated_at_utc: "2026-08-17T03:55:00Z"
+
+# =============================================================
+# G1-04 Profile Baseline
+# 首期仅允许 supervised_holdout，不得扩展宣称 RL、CV、time-series、
+# unsupervised 或 Pareto 多目标。
+# =============================================================
+
+enabled_profiles:
+  - "supervised_holdout"
+
+disallowed_profiles_this_study:
+  - "reinforcement_learning"
+  - "computer_vision"
+  - "time_series"
+  - "unsupervised"
+  - "pareto_multi_objective"
+
+scope_rule: "FIRST_STUDY_ONLY_SUPERVISED_HOLDOUT"
+extension_rule: "NO_PROFILE_EXTENSION_WITHOUT_OWNER_APPROVAL"
+
+profile_definition:
+  supervised_holdout:
+    description: "监督学习 + holdout 验证集；训练集拟合，验证集逐轮选优，测试集独立验收。"
+    split_role:
+      train: "model_fitting"
+      validation: "iterative_selection"
+      test: "independent_acceptance_only"
+    access_control: "selection/test namespace + principal + ACL 分离"
+
+non_goals_profiles:
+  reinforcement_learning: "禁止（无 reward/env 契约）"
+  computer_vision_profile: "禁止（本 study 聚焦 supervised_holdout 回归 fixture）"
+  time_series: "禁止（无时间切分/滚动验证契约）"
+  unsupervised: "禁止（无无监督指标契约）"
+  pareto_multi_objective: "禁止（单主指标，无多目标帕累托）"
+
+note: >-
+  本 study（STUDY-MVD-SH-QWEN-001）profile 严格限定为 supervised_holdout。
+  任何 profile 扩展必须经 HUMAN_OWNER 批准并冻结新 profile 合同。

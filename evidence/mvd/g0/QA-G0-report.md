@@ -55,3 +55,11 @@ QA_G0=PENDING (independent QA-01 sign-off required)
 - **G0 证据采集完成**（EVD-G0-010—020 + addendum + stop-state 均已落盘到 `evidence/mvd/g0/`）。
 - **G0 PASS 未达成**：①QA-01 独立签署未完成；②治理分支提交被阻塞。
 - 在 QA-01 独立签署 + 治理分支问题解决前，G0 状态保持 `REMEDIATION_IN_PROGRESS`，不进入 G1。
+
+## G0 闭合更新（2026-08-17T03:20:00Z，governance 分支并入）
+
+- **QA-01 独立签署完成**：PASS（正式版见 `EVD-G0-020-QA01-Signoff.md`）。
+- **四角色审查全部 PASS**：QA-01（最终签署人）、SEC-01、DEV-VCS-01、DEV-EVAL-01。
+- **EVD-G0-012 已更正**（commit `cda2de9`）：pydantic NOT_PRESENT → PRESENT 2.13.4，经 SEC-01 发现 + QA-01 独立复核确认，留存为"已识别并更正的证据偏差"。
+- **G0_STATUS = PASS（CLOSED）**。G0 退出条件已全部满足（见上方对照表），QA_G0=PASS。
+- 治理分支 `governance/mvd-v3-baseline` @ HEAD `cda2de9` 保留，供 G1 使用。

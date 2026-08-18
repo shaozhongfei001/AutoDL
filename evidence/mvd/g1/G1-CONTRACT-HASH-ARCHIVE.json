@@ -1,0 +1,137 @@
+{
+  "artifact": "G1_CONTRACT_BASELINE_HASH_ARCHIVE",
+  "generated_utc": "2026-08-18T15:27:58Z",
+  "head_commit": "548b8de",
+  "contract_bundle_sha256": "9308b809877e7c65f734f415240be4569a71e4e623ff2bca144e5020c607bce0",
+  "policy_bundle_sha256": "4587a4e1be18f0b88b49fb668965d9352b2f84370c364a0996aed5375a9e756d",
+  "policy_file_count": 23,
+  "total_file_count": 29,
+  "canonical_runtime": "/home/szf/env/AutoDL/.venv/bin/python (3.10.12, torch 2.5.0+cu124)",
+  "data_fingerprint": "revision 12567cab; row digest 58174bbb; SPLIT-MVD-V1 train41567/val4965/test5228",
+  "hw_manifest_hash": "1b35c32145103c84146f062a261e738b9324c996c48c56aaad151d27c22e6657",
+  "files": [
+    {
+      "path": "specs/mvd/adr/ADR-MVD-001-strict-schema.md",
+      "sha256": "87df2dc15b91a09c0ad396aa1eaa66fb8343e17b6472f74238df5ffd422bd4f6"
+    },
+    {
+      "path": "specs/mvd/adr/ADR-MVD-002-budget-timing.md",
+      "sha256": "fb70c49f4c5727effb742b4f29d69947372451abeb9c552b3531d7f6461c9b04"
+    },
+    {
+      "path": "specs/mvd/adr/ADR-MVD-003-isolation-planes.md",
+      "sha256": "a386850592dd28eceda6b0c01f3341dc732eb004d2b2a1d191281aee44fa04fc"
+    },
+    {
+      "path": "specs/mvd/adr/ADR-MVD-004-metric-identity.md",
+      "sha256": "80965e5aec7d50da027e2ab90dbfda98a870d056dd475816988f0f8a103248d4"
+    },
+    {
+      "path": "specs/mvd/adr/ADR-MVD-005-hard-constraints.md",
+      "sha256": "a78015872070f9dfa1fed4808a5e425dcc9873cd2cc3404c0e380e393816c00e"
+    },
+    {
+      "path": "specs/mvd/adr/ADR-MVD-006-worktree-manifest-ledger.md",
+      "sha256": "a02fb4eedb61892fde6d4a04b8ac45880c8a78a07967dcaf837c521a28b2ba28"
+    },
+    {
+      "path": "specs/mvd/adr/ADR-MVD-007-owner-decision-provisional.md",
+      "sha256": "0ba88f09458c177022a89ad85e6257df90efd4874355d6cce1dd959204eba7b3"
+    },
+    {
+      "path": "specs/mvd/adr/ADR-MVD-008-diagnostics-advice-memory.md",
+      "sha256": "82665c431944c637135bf9f48aaea7015da04c8eb32f62b47e42eb26aac240b8"
+    },
+    {
+      "path": "specs/mvd/adr/ADR-MVD-009-gate-authorization.md",
+      "sha256": "cfeb8b3dbfc925dff1da95b0619c11f03a8f167b4c523fea0edbb984b24f5f31"
+    },
+    {
+      "path": "specs/mvd/contracts/G1-04-profile-baseline.yaml",
+      "sha256": "47d39e53c611069385f73690078969fbe69b4aa1473297314d8418095a274b85"
+    },
+    {
+      "path": "specs/mvd/contracts/G1-05-metric-identity.yaml",
+      "sha256": "a96a8c46f5b760b365851bc20db645247f4c6ac00fd2acac0d092bd8e4b7bd99"
+    },
+    {
+      "path": "specs/mvd/contracts/G1-06-statistical-policy.yaml",
+      "sha256": "92a618e95ce4a85d22090cf1c44026d8b0d8e6f79832646686a95e2112024d61"
+    },
+    {
+      "path": "specs/mvd/contracts/G1-07-budget-contract.yaml",
+      "sha256": "5609fe970ca0f8afe48ceee7f7ee06d6cad803a3860460448e244b88cd066f21"
+    },
+    {
+      "path": "specs/mvd/contracts/G1-08-constraint-contract.yaml",
+      "sha256": "d5a112f7eab2a59993a27b08f71424e0a413933b93c8e2de1e10f146a465eaec"
+    },
+    {
+      "path": "specs/mvd/contracts/G1-09-change-scope-amended.md",
+      "sha256": "a30a26b8bc15574b4db132fc7e306b98088f4274c2352bd5be255c502a05d956"
+    },
+    {
+      "path": "specs/mvd/contracts/G1-09-isolation-contract.yaml",
+      "sha256": "4f553049327ee70864247e99e3ff2f33381ec27dbdd35a5e226a8f044a57d809"
+    },
+    {
+      "path": "specs/mvd/contracts/G1-10-artifact-ledger-contract.yaml",
+      "sha256": "ae948d3ba6737f78aec5c68ab1ca4e876b9d53e269bec060fdb324d25843bd82"
+    },
+    {
+      "path": "specs/mvd/contracts/G1-10-principals-amended.md",
+      "sha256": "7feee127fdff4861d8f29df822de35fbcf019ca65ecc966c6ccff2a42a769cb8"
+    },
+    {
+      "path": "specs/mvd/contracts/G1-11-state-root-amended.md",
+      "sha256": "ef5a214792cf89f336d77d5dfa430733f69226a00ac6dd0b91ea031106d0e9e3"
+    },
+    {
+      "path": "specs/mvd/contracts/STUDY-MVD-SH-QWEN-001.yaml",
+      "sha256": "cb7fadb5f9b2b040ee4c7cc368407bd90d7ec65b35b386375a0a463487dfa5c4"
+    },
+    {
+      "path": "specs/mvd/decisions/D12-dataset-snapshot-evidence.md",
+      "sha256": "fa272ae3fe46368d98ddd186f10866425c521e7af296920682edbbd3d12d29fc"
+    },
+    {
+      "path": "specs/mvd/decisions/G1_CLOSURE_ADDENDUM_REMEDIATION.md",
+      "sha256": "d0952160a2a6b5db67fa22383be47015847dc370b7f4a331dae5a9d07c328c41"
+    },
+    {
+      "path": "specs/mvd/decisions/OWNER_DECISION_PACK_G1.md",
+      "sha256": "da1cbafb5d1ee332430ba1801bad955c2eaab5f3d9e25b8e7115ea6929631921"
+    },
+    {
+      "path": "specs/mvd/runtime/D01-canonical-freeze.txt",
+      "sha256": "ade58b5661416172832f0de5bbd13fefa4e36171c374775ae1d938bd6ced7893"
+    },
+    {
+      "path": "specs/mvd/runtime/D01-torch-discrepancy-closure.md",
+      "sha256": "ad04afc46cfd7d1ea6e3c34447e469e5077033057a3cd0c005f1b6fc8b2eb6b0"
+    },
+    {
+      "path": "specs/mvd/runtime/D04-hardware-manifest.json",
+      "sha256": "1b35c32145103c84146f062a261e738b9324c996c48c56aaad151d27c22e6657"
+    },
+    {
+      "path": "specs/mvd/runtime/G1-01-canonical-runtime-manifest.yaml",
+      "sha256": "3ae22149d95db198fb080d81d13c5311bc65815382f1124f3b39486f107ebfb9"
+    },
+    {
+      "path": "specs/mvd/runtime/G1-02-environment-selection-report.md",
+      "sha256": "057c578104dac0b5426abe18c6cd72fa6af9e5aed935747b3cc6bca6fdafce04"
+    },
+    {
+      "path": "specs/mvd/traceability/G1-12-traceability-matrix.yaml",
+      "sha256": "1511c20e8c99d3a30df2bfe239fdc471be87b97edc9cde9c35bd675e6b8ff9da"
+    }
+  ],
+  "hash_normalization": "CANONICAL: sha256 over 27 G1 deliverable files; each file sha256 computed after stripping lines matching 'contract_hash:'/'policy_bundle_hash:'; bundle line format 'path|sha256'; excludes self-ref archive+manifest files; anchored at commit 548b8de",
+  "based_on_commit": "548b8de",
+  "hash_allowlist_excludes": [
+    "evidence/mvd/g1/G1-CONTRACT-HASH-ARCHIVE.json",
+    "specs/mvd/G1-CONTRACT-HASH-MANIFEST.json"
+  ],
+  "file_count": 29
+}

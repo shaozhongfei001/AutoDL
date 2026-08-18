@@ -1,0 +1,76 @@
+schema_version: "metric-identity/v1"
+policy_id: "MVD-METRIC-IDENTITY-V1"
+status: "APPROVED_AS_AMENDED_D04_D07"
+study_id: "STUDY-MVD-SH-QWEN-001"
+gate: "G1_CONTRACT_BASELINE"
+owner_decision: "D04=APPROVED_AS_COHORT_RTX3060L_6G_V1_WITH_MANIFEST_HASH; D07=CONDITIONALLY_APPROVED_0_02_NAT_PER_TOKEN"
+generated_by: "TECH_LEAD (ARCH-01) + DEV-EVAL-01"
+updated_at_utc: "2026-08-17T05:25:00Z"
+
+# =============================================================
+# G1-05 Metric Identity —— D-04/D-07 修订
+# =============================================================
+
+primary_metric:
+  metric_id: "validation_loss"
+  direction: "MINIMIZE"
+  unit: "NLL_NAT_PER_TOKEN_V1"              # D-07 限定
+  unit_registry_id: "NLL_NAT_PER_TOKEN_V1"
+  unit_definition: >-
+    自然对数（ln）、按有效 token 归一化的平均 NLL。
+    若 validation_loss 是 batch mean / sample mean / 其他 reduction，
+    必须重新定义单位与阈值，不得沿用 0.02 nats。
+  evaluator_hash: "PENDING_EVALUATOR_HASH"
+  aggregation: "PAIRED_MEAN_V1"
+  checkpoint_selection: "BEST_VALIDATION_LOSS"
+
+dataset_identity:
+  dataset_name: "yahma/alpaca-cleaned"
+  dataset_fingerprint: "PENDING_DATASET_EVIDENCE_CLOSURE"   # D-12
+
+split_identity:
+  train: "PENDING_DATASET_EVIDENCE_CLOSURE"
+  validation: "PENDING_DATASET_EVIDENCE_CLOSURE"
+  final_test: "PENDING_EXISTENCE"   # 需新增独立 final-test split
+
+preprocess_identity:
+  preprocess_hash: "PENDING_DATASET_EVIDENCE_CLOSURE"
+  tokenizer: "Qwen2.5-0.5B"
+  tokenizer_hash: "PENDING_DATASET_EVIDENCE_CLOSURE"
+
+evaluator_identity:
+  evaluator_hash: "PENDING_EVALUATOR_HASH"
+  test_evaluator_hash: "PENDING_EVALUATOR_HASH"
+
+hardware_cohort:
+  cohort_id: "COHORT-RTX3060L-6G-V1"        # D-04
+  accelerator: "NVIDIA GeForce RTX 3060 Laptop GPU"
+  count: 1
+  manifest_hash: "1b35c32145103c84146f062a261e738b9324c996c48c56aaad151d27c22e6657"
+  comparability_requires_exact_cohort: true
+
+identity_freeze_declaration:
+  dataset_identity_frozen: true
+  split_identity_frozen: true
+  preprocess_identity_frozen: true
+  evaluator_identity_frozen: true
+  unit_identity_frozen: true
+  direction_identity_frozen: true
+  aggregation_identity_frozen: true
+  checkpoint_selection_frozen: true
+  hardware_cohort_frozen: true
+
+secondary_metrics:
+  - metric_id: "train_loss"
+    direction: "MINIMIZE"
+    unit: "NLL_NAT_PER_TOKEN_V1"
+  - metric_id: "validation_accuracy"
+    direction: "MAXIMIZE"
+    unit: "percentage_point"
+  - metric_id: "active_train_seconds"
+    direction: "MINIMIZE"
+    unit: "seconds"
+
+note: >-
+  单一 metric identity 保证公平比较。C8/C9 历史数据仅诊断/replay，
+  不建立 metric baseline，不反推 practical delta。

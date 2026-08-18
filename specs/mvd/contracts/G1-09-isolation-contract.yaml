@@ -1,0 +1,80 @@
+schema_version: "isolation-contract/v1"
+policy_id: "MVD-ISOLATION-V1"
+status: "DRAFT_FOR_G1_REVIEW"
+study_id: "STUDY-MVD-SH-QWEN-001"
+gate: "G1_CONTRACT_BASELINE_PREPARATION"
+generated_by: "TECH_LEAD (ARCH-01) + SEC-01"
+generated_at_utc: "2026-08-17T03:55:00Z"
+
+# =============================================================
+# G1-09 Isolation Contract
+# selection/test namespace、principal、ACL 分离；
+# 禁止 test 结果反馈迭代 Agent。
+# =============================================================
+
+selection_namespace:
+  value: "selection/iterative"            # D-10 APPROVED_AS_AMENDED
+  purpose: "逐轮选优所用 validation 指标"
+
+final_test_namespace:
+  value: "final-test/qa"
+  purpose: "独立验收所用 test 指标"
+  separated_from_selection: true
+
+principals:
+  iterative_principal:
+    value: "svc-mvd-iterative-v1"         # D-10 APPROVED_AS_AMENDED
+  final_eval_principal:
+    value: "svc-mvd-final-eval-v1"
+    separated_from_iterative: true
+    note: "QA-01 不兼任 final-eval 运行主体；QA-01 仅 qa-01-readonly-review 只读审查"
+  committer_principal:
+    value: "svc-mvd-committer-v1"
+    separated_from_iterative: true
+  qa_principal:
+    value: "qa-01-readonly-review"
+    role: "只读证据 + 签署报告，不承担运行时生产职责"
+
+# D-10 权限边界
+principal_permissions:
+  svc_mvd_iterative_v1:
+    test_read: false
+    decision_write: false
+    champion_write: false
+    iterative_memory_write: true
+  svc_mvd_final_eval_v1:
+    test_read: true
+    decision_write: false
+    champion_write: false
+    iterative_memory_write: false
+  svc_mvd_committer_v1:
+    raw_metric_test_read: false
+    decision_write: true          # 仅接收已签名 FinalDecision
+    champion_write: true
+  qa_01_readonly_review:
+    evidence_read: true
+    decision_write: false
+    champion_write: false
+
+# G2 映射
+g2_mapping:
+  required: "把逻辑 principal 映射到可执行的 OS/service identity 和 ACL"
+  status: "PENDING_G2"
+
+acl:
+  selection_test_acl_separated: true
+  selection_acl: "iterative_principal read/write"
+  test_acl: "final_eval_principal + owner read only"
+  test_acl_excludes_iterative: true
+
+feedback_control:
+  test_feedback_to_iterative_loop: false
+  test_result_visibility: "OWNER_AND_QA_ONLY"
+  note: >-
+    test 结果绝不回流逐轮迭代 Agent。validation 用于逐轮选优，
+    test 仅用于独立最终验收。违反即为硬约束违规。
+
+verification:
+  namespace_separation_machine_verifiable: true
+  principal_separation_machine_verifiable: true
+  acl_separation_machine_verifiable: true

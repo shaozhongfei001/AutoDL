@@ -1,0 +1,57 @@
+schema_version: "artifact-ledger-contract/v1"
+policy_id: "MVD-ARTIFACT-LEDGER-V1"
+status: "DRAFT_FOR_G1_REVIEW"
+study_id: "STUDY-MVD-SH-QWEN-001"
+gate: "G1_CONTRACT_BASELINE_PREPARATION"
+generated_by: "TECH_LEAD (ARCH-01) + DEV-VCS-01"
+generated_at_utc: "2026-08-17T03:55:00Z"
+
+# =============================================================
+# G1-10 Artifact/Ledger Contract
+# manifest、SHA-256、原子发布、append-only ledger、replay 规则。
+# =============================================================
+
+artifact:
+  root: "${MVD_STATE_ROOT}/studies/${study_id}/artifacts"   # D-11 移出 Git worktree
+  state_root: "/home/szf/mvd-state"
+  manifest_schema_id: "artifact-manifest/v1"
+  manifest_required_before_decision: true
+  sha256_required: true
+  atomic_publish_required: true
+  git_large_binaries_forbidden: true
+  retention_policy_id: "MVD-RET-001"
+
+ledger:
+  path: "${MVD_STATE_ROOT}/studies/${study_id}/ledger/events.jsonl"
+  schema_id: "mvd-ledger/v1"
+  append_only: true
+  replay_required: true
+  immutability: "append-only"
+  note: >-
+    运行态 ledger 在 ${MVD_STATE_ROOT}，不在 specs/。
+    specs/mvd/ledger/ 仅保存 ledger schema 或示例。
+
+manifest_spec:
+  fields_required:
+    - artifact_id
+    - sha256
+    - path
+    - size_bytes
+    - created_at_utc
+    - creator_principal
+    - experiment_id
+  atomic_publish_rule: "RENAME_TO_FINAL_OR_ABORT"
+  note: >-
+    候选实验产物必须先落 manifest（含 SHA-256）再进入 KEEP/DISCARD 判定。
+    不得在未归档制品前作出决定（Isolate before mutate / Archive before decide）。
+
+replay_rules:
+  replay_required: true
+  replay_from: "sha256-manifest + ledger"
+  staleness_rule: "STALE_CANDIDATE_REPLAY_AND_RETEST"
+  immutability_rule: "NO_MUTATION_AFTER_ARCHIVE"
+
+sha256_hash_policy:
+  algorithm: "SHA-256"
+  per_file: true
+  manifest_level: true

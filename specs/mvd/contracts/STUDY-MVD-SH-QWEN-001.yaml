@@ -1,0 +1,213 @@
+schema_version: study-contract/v1
+study_id: STUDY-MVD-SH-QWEN-001
+study_version: 1.1-remediated
+status: G1_CLOSED_APPROVED
+project_id: auto-deep-researcher-24x7
+gate: G1_CONTRACT_BASELINE
+owner_decision: PARTIAL_APPROVAL_G1_DECISION_PACK_WITH_TARGETED_REMEDIATION
+generated_by: TECH_LEAD (ARCH-01)
+generated_at_utc: '2026-08-17T05:20:00Z'
+updated_at_utc: '2026-08-17T05:20:00Z'
+profile_id: supervised_holdout
+authority:
+  owner_decision_id: ODR-MVD-20260816-001
+  owner_decision_pack: ODP-G1-20260817-001
+  owner_remediation: PARTIAL_APPROVAL_G1_DECISION_PACK_WITH_TARGETED_REMEDIATION
+  repository_base_commit: 83e41c13e1032b02548d445dd3234ae127d03311
+  contract_hash: 9308b809877e7c65f734f415240be4569a71e4e623ff2bca144e5020c607bce0
+  policy_bundle_hash: 4587a4e1be18f0b88b49fb668965d9352b2f84370c364a0996aed5375a9e756d
+  contract_hash_archive: evidence/mvd/g1/G1-CONTRACT-HASH-ARCHIVE.json
+  contract_hash_effective_time_utc: '2026-08-18T00:55:00Z'
+  contract_hash_normalization: sha256 over 29 G1 files (exclude contract_hash/policy_bundle_hash
+    self-ref lines), anchored at commit 548b8de
+  canonical_runtime: /home/szf/env/AutoDL/.venv/bin/python
+  canonical_runtime_env_id: ENV-VENV
+  canonical_python: 3.10.12
+  torch_version: 2.5.0+cu124
+  torch_discrepancy_closed: true
+research:
+  objective: 在固定 Study 合同下验证机器判定、baseline、事务、隔离与恢复闭环
+  model_task: Qwen fine-tuning supervised holdout regression fixture
+  profile: supervised_holdout
+  non_goals:
+  - cross_study_ranking
+  - cross_hardware_ranking
+  - reinforcement_learning
+  - time_series
+  - computer_vision_profile_extension
+  - unsupervised
+  - pareto_multi_objective
+  - automatic_causal_attribution
+budget:
+  mode: active_train_seconds
+  limit_seconds: 600
+  hard_wall_clock_limit_seconds: 900
+  timing_policy_id: MONOTONIC_ACTIVE_TRAIN_V1
+  hardware_cohort_id: COHORT-RTX3060L-6G-V1
+  hardware_manifest_hash: 1b35c32145103c84146f062a261e738b9324c996c48c56aaad151d27c22e6657
+  queue_in_active_budget: false
+  setup_in_active_budget: false
+  compile_in_active_budget: false
+  warmup_in_active_budget: false
+  required_events:
+  - queue_seconds
+  - setup_seconds
+  - compile_seconds
+  - warmup_seconds
+  - active_train_seconds
+  - evaluation_seconds
+  - artifact_finalize_seconds
+  - total_wall_seconds
+  historical_candidate_only: true
+  historical_300_420_status: CANDIDATE_EVIDENCE_ONLY
+data:
+  dataset_name: yahma/alpaca-cleaned
+  dataset_version: fixed-snapshot
+  dataset_source: https://huggingface.co/datasets/yahma/alpaca-cleaned
+  dataset_revision: 12567cabf869d7c92e573c7c783905fc160e9639
+  dataset_license: CC BY NC 4.0
+  dataset_fingerprint: 58174bbb6f7f80ac7cb12555dbbff2a4a5e1731424369ab62850446082afb555
+  dataset_arrow_sha256: e0b8d2a4fd14442983201e182c15ab2c82175064128920839408ea57dc04015e
+  total_rows: 51760
+  split_policy: SPLIT-MVD-V1-20260818
+  train_split_count: 41567
+  train_split_fingerprint: deterministic-bucket-split-mvd-v1
+  validation_split_count: 4965
+  validation_split_fingerprint: deterministic-bucket-split-mvd-v1
+  final_test_split: independent-final-test-split-mvd-v1
+  final_test_split_count: 5228
+  final_test_split_fingerprint: deterministic-bucket-split-mvd-v1
+  cross_split_leak_check: PASS (final-test/validation 0 dup, no cross-split leak)
+  data_freeze_time: '2026-08-18T00:40:00Z'
+  data_freeze_before_first_experiment: true
+  preprocess_hash: da65a4087630ab187d91ecace9c736b6802f8687fcd2027025893623f6f12b1f
+  tokenizer: Qwen2.5-0.5B
+  tokenizer_hash: a8506e7111b80c6d8635951a02eab0f4e1a8e4e5772da83846579e97b16f61bf
+  model_config_hash: fea78a4aa54142295545630bc5c9ea11ae7280b0a41d31a6bba30512a54a1a0a
+profile_registry:
+  enabled_profiles:
+  - supervised_holdout
+  disallowed_profiles_this_study:
+  - reinforcement_learning
+  - time_series
+  - computer_vision
+  - unsupervised
+  - pareto_multi_objective
+  note: 首期仅允许 supervised_holdout，不得扩展。
+evaluation:
+  primary_metric_id: validation_loss
+  direction: MINIMIZE
+  unit_registry_id: NLL_NAT_PER_TOKEN_V1
+  evaluator_hash: PENDING_EVALUATOR_HASH
+  aggregation_policy_id: PAIRED_MEAN_V1
+  checkpoint_selection_policy_id: BEST_VALIDATION_LOSS
+  validation_schema_id: selection-metric/v1
+  test_schema_id: final-test-metric/v1
+  dataset_identity_frozen: true
+  split_identity_frozen: true
+  preprocess_identity_frozen: true
+  evaluator_identity_frozen: true
+  unit_identity_frozen: true
+  direction_identity_frozen: true
+  aggregation_identity_frozen: true
+  checkpoint_selection_frozen: true
+  hardware_cohort_frozen: true
+  hardware_cohort_id: COHORT-RTX3060L-6G-V1
+  hardware_manifest_hash: 1b35c32145103c84146f062a261e738b9324c996c48c56aaad151d27c22e6657
+statistics:
+  seeds:
+  - 17
+  - 29
+  - 43
+  minimum_repeats: 3
+  uncertainty_method: PAIRED_SE_V1
+  confidence_policy_id: PAIRED_STUDENT_T_ONE_SIDED_95_V1
+  pooled_se_allowed: false
+  fixed_2x_multiplier_allowed: false
+  decision_bar: max(min_practical_delta, uncertainty_margin)
+  min_practical_delta: 0.02
+  min_practical_delta_unit: NLL_NAT_PER_TOKEN_V1
+  practical_delta_condition: 仅当 evaluator 使用自然对数按有效 token 归一化的平均 NLL 时生效； batch/sample
+    mean 需重新定义单位与阈值。
+  practical_delta_source: NOT_FROM_C8_C9
+  insufficient_evidence_action: HUMAN_REVIEW
+  fallback_bar: null
+  fallback_bar_enabled: false
+constraints:
+  hard:
+  - C01_VAL_LOSS_FINITE
+  - C02_VAL_LOSS_POSITIVE
+  - C03_TRAIN_LOSS_FINITE
+  - C04_ACTIVE_TRAIN_BUDGET
+  - C05_WALLCLOCK_BUDGET
+  - C06_REPEATS_COMPLETE
+  - C07_CHECKPOINT_SELECTED
+  expected_id_count: 7
+  actual_id_count: 7
+  ids_match_expected: true
+  completeness_required: true
+  completeness_machine_verifiable: true
+  unit_mismatch_action: BLOCKED
+baseline:
+  allow_provisional: true
+  allowed_partial_reason:
+  - HARD_TIMEOUT
+  provisional_requires_exact_owner_record: true
+  historical_cycle1_owner_record_status: DRAFT_NOT_EFFECTIVE
+  historical_cycle1_effective: false
+  provisional_auto_keep_allowed: false
+  cycle8_validation_loss: '0.7723'
+  cycle8_usage: DIAGNOSTIC_AND_REPLAY_ONLY
+  cycle9_validation_loss: '0.9188'
+  cycle9_usage: DIAGNOSTIC_AND_REPLAY_ONLY
+  c8_v3_baseline_authority: 'NO'
+  c8_establish_v3_champion: false
+  c8_formal_baseline: false
+  c8_derive_practical_delta: false
+  c8_derive_fallback_bar: false
+  c8_backfill_c1_provisional: false
+  c8_study_contract_effective_evidence: false
+change_scope:
+  allowlist:
+  - train_ft.py
+  protected_paths_note: train_ft.py 是 allowlist 非 protected；除 train_ft.py 外整个仓库默认
+    DENY （.git/**、tests、final-test、evaluator、dataset、split、specs/mvd/**、 evidence/mvd/**、requirements、lockfile、Judge/Committer/policy/config）。
+  default_repository_write_policy: DENY
+  dependency_change_allowed: false
+  max_changed_files: 1
+  max_diff_lines_added_plus_deleted: 200
+  anti_bypass: rename/symlink/submodule/binary 不得绕过文件数或 diff 限制
+access:
+  iterative_principal: svc-mvd-iterative-v1
+  final_eval_principal: svc-mvd-final-eval-v1
+  committer_principal: svc-mvd-committer-v1
+  qa_principal: qa-01-readonly-review
+  selection_namespace: selection/iterative
+  final_test_namespace: final-test/qa
+  selection_test_namespace_separated: true
+  selection_test_principal_separated: true
+  selection_test_acl_separated: true
+  test_feedback_to_iterative_loop: false
+  qa_roles_operational: false
+  g2_principal_identity_mapping: PENDING_G2
+artifact:
+  root: ${MVD_STATE_ROOT}/studies/${study_id}/artifacts
+  state_root: /home/szf/mvd-state
+  manifest_schema_id: artifact-manifest/v1
+  atomic_publish_required: true
+  sha256_required: true
+  append_only: true
+  retention_policy_id: MVD-RET-001
+ledger:
+  path: ${MVD_STATE_ROOT}/studies/${study_id}/ledger/events.jsonl
+  schema_id: mvd-ledger/v1
+  append_only: true
+  replay_required: true
+  replay_rule: immutable-replay-from-sha256-manifest
+runtime:
+  max_parallel: 1
+  zero_llm_monitor: true
+  auto_keep_enabled: false
+  pilot_enabled: false
+  unattended_24x7_authorized: false
+  production_ready: false
