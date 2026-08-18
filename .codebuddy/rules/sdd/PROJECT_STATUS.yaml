@@ -36,8 +36,10 @@ gate_status:
   G1_PASS: "NO"
   g1_owner_decision: "PARTIAL_APPROVAL_G1_DECISION_PACK_WITH_TARGETED_REMEDIATION"
   g1_remediation_head: "ce1750d"   # 完整 SHA 见下方 g1_commits
-  g1_qa_trigger_authorized: "NO"
-  qa_g1_signoff: "PENDING"
+  g1_qa_trigger_authorized: "YES (HUMAN_OWNER 2026-08-18)"
+  qa_g1_signoff: "QA-01 (EVD-G1-001-QA01-Signoff.md, PASS)"
+  g1_pass: "YES"
+  g1_status: "PASS (CLOSED)"
   # G1 关键决策回填
   g1_canonical_runtime: "/home/szf/env/AutoDL/.venv/bin/python (3.10.12, torch 2.5.0+cu124)"
   g1_active_budget_seconds: 600
@@ -48,11 +50,10 @@ gate_status:
   g1_state_root: "/home/szf/mvd-state (external to git worktrees)"
   g1_data_fingerprint: "CLOSED 2026-08-18 (revision 12567cab; row digest 58174bbb; split SPLIT-MVD-V1: train 41567/val 4965/test 5228; no cross-split leak)"
   g1_hw_manifest_hash: "1b35c32145103c84146f062a261e738b9324c996c48c56aaad151d27c22e6657"
+  g1_contract_bundle_sha256: "9308b809877e7c65f734f415240be4569a71e4e623ff2bca144e5020c607bce0"
+  g1_policy_bundle_sha256: "4587a4e1be18f0b88b49fb668965d9352b2f84370c364a0996aed5375a9e756d"
   g1_closure_pending:
-    - "contract_hash / policy_bundle_hash (contract final approval)"
-    - "baseline files SHA-256 + effective time + Owner (archival)"
-    - "evaluator hash (F1 coding phase)"
-    - "QA-01 independent QA-G1 signoff"
+    - "evaluator hash (F1 coding phase, G2 实施期; identity frozen in G1-05)"
 max_parallel_for_first_pilot: 1
 g1_commits:
   - "f1f35652848c1b0ee4c5f0a1c8cce7d0fd2b03e6"
