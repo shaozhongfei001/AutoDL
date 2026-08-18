@@ -19,8 +19,8 @@ authority:
   unattended_24x7_authorized: false
   production_ready: false
   frozen: false
-current_gate: "G1_CONTRACT_BASELINE"
-current_phase: "MVD_V3_G1_OWNER_DECISION_REMEDIATION_REQUIRED"
+current_gate: "G1_CONTRACT_BASELINE_REMEDIATION"
+current_phase: "MVD_V3_G1_EXPERT_REVIEW_BLOCKED_FOR_REMEDIATION"
 gate_status:
   G0_STATUS: "PASS (CLOSED)"
   g0_qa_signoff: "QA-01 (EVD-G0-020-QA01-Signoff.md, PASS)"
@@ -32,15 +32,28 @@ gate_status:
     - "cda2de986c96c2ae9094dd0348b0430dde3c176e"
     - "65ba4fb0293872f7aa9cd9fd58763284b17ebcb6"
   g0_corrected_deviation: "EVD-G0-012 pydantic NOT_PRESENT->PRESENT 2.13.4 (SEC-01 found, cda2de9 corrected, QA-01 re-verified)"
-  G1_STATUS: "OWNER_DECISION_REMEDIATION_REQUIRED"
+  # ---- G1 状态（专家评审后修正） ----
+  G1_STATUS: "REMEDIATION_REQUIRED"
   G1_PASS: "NO"
   g1_owner_decision: "PARTIAL_APPROVAL_G1_DECISION_PACK_WITH_TARGETED_REMEDIATION"
-  g1_remediation_head: "ce1750d"   # 完整 SHA 见下方 g1_commits
+  g1_remediation_head: "ce1750d"
   g1_qa_trigger_authorized: "YES (HUMAN_OWNER 2026-08-18)"
-  qa_g1_signoff: "QA-01 (EVD-G1-001-QA01-Signoff.md, PASS)"
-  g1_pass: "YES"
-  g1_status: "PASS (CLOSED)"
-  # G1 关键决策回填
+  qa_g1_signoff: "QA-01 (EVD-G1-001-QA01-Signoff.md, PASS) — UNDER EXPERT CHALLENGE"
+  g1_pass: "NO (expert review BLOCKED_FOR_REMEDIATION overrides self-declared PASS)"
+  g1_status: "REMEDIATION_REQUIRED (NOT CLOSED)"
+  g1_expert_review:
+    report_id: "MVD-G1-EXPERT-REVIEW-20260818-001"
+    verdict: "BLOCKED_FOR_REMEDIATION"
+    g1_owner_confirmation: "WITHHELD"
+    g2_start_authorized: "NO"
+    implementation_authorized: "NO"
+    pilot_authorized: "NO"
+    next_authorized_action: "SUBMIT_G1_EXPERT_REVIEW_EVIDENCE_PACKAGE"
+    when_remediated_next_gate: "G2_HLD_PREPARATION_ONLY"
+    coding_gate: "G3_BUILD_READY"
+    blockers: "EXP-G1-BLK-001..007"
+    report_path: "evidence/mvd/g1/MVD_G1_Expert_Review_20260818.md"
+  # G1 关键决策回填（保留，待整改后由 Owner 确认）
   g1_canonical_runtime: "/home/szf/env/AutoDL/.venv/bin/python (3.10.12, torch 2.5.0+cu124)"
   g1_active_budget_seconds: 600
   g1_hard_wallclock_seconds: 900
@@ -50,11 +63,23 @@ gate_status:
   g1_state_root: "/home/szf/mvd-state (external to git worktrees)"
   g1_data_fingerprint: "CLOSED 2026-08-18 (revision 12567cab; row digest 58174bbb; split SPLIT-MVD-V1: train 41567/val 4965/test 5228; no cross-split leak)"
   g1_hw_manifest_hash: "1b35c32145103c84146f062a261e738b9324c996c48c56aaad151d27c22e6657"
-  g1_contract_bundle_sha256: "9308b809877e7c65f734f415240be4569a71e4e623ff2bca144e5020c607bce0"
-  g1_policy_bundle_sha256: "4587a4e1be18f0b88b49fb668965d9352b2f84370c364a0996aed5375a9e756d"
+  g1_contract_bundle_sha256: "9308b809877e7c65f734f415240be4569a71e4e623ff2bca144e5020c607bce0 (UNVERIFIED_BY_EXPERT)"
+  g1_policy_bundle_sha256: "4587a4e1be18f0b88b49fb668965d9352b2f84370c364a0996aed5375a9e756d (UNVERIFIED_BY_EXPERT)"
   g1_closure_pending:
-    - "evaluator hash (F1 coding phase, G2 实施期; identity frozen in G1-05)"
+    - "EXP-G1-BLK-001: 提供正确 G1_EXPERT_REVIEW_PROMPT.md + 只读证据包"
+    - "EXP-G1-BLK-002: G2 改为 HLD_PREPARATION_ONLY；G3 前 IMPLEMENTATION=NO"
+    - "EXP-G1-BLK-003: HUMAN_OWNER 显式签署完整 Study + D08 七项原文 + bundle hash"
+    - "EXP-G1-BLK-004: evaluator 双哈希 schema，或在 G1 绑定已有实现 hash"
+    - "EXP-G1-BLK-005: D01 discrepancy 闭合记录 (CURRENT_STATUS=CLOSED + resolution)"
+    - "EXP-G1-BLK-006: 27 文件 manifest + 版本化重算脚本 + Git diff 零差异证明"
+    - "EXP-G1-BLK-007: split row manifest + 公式 + 脚本 + 泄漏检测 + ACL 证据"
 max_parallel_for_first_pilot: 1
+authority_gates:
+  implementation_authorized: false       # 重置：G3 BUILD_READY 前必须为 NO
+  pilot_authorized: false
+  unattended_24x7_authorized: false
+  production_ready: false
+  gate_crosswalk_supersession: "MVD 范围内以 V3.0/V1.1 Gate 模型为准；G3 BUILD_READY 才授权编码"
 g1_commits:
   - "f1f35652848c1b0ee4c5f0a1c8cce7d0fd2b03e6"
   - "ce1750d408c77eb0e9b99becb5c69fb5313f21ba"
