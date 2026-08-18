@@ -1,9 +1,9 @@
-"""Live integration check: drive a real CLI-provider worker end-to-end.
+"""实时集成检查：端到端驱动一个真实的 CLI 供应商 worker。
 
-Run manually:  python -m tests.integration_cli_tool_use
+手动运行：  python -m tests.integration_cli_tool_use
 
-Burns one subscription round-trip per provider. Skipped automatically
-if the CLI is not on PATH. Not wired into the normal unittest suite.
+每个供应商会消耗一次订阅往返（round-trip）。若对应 CLI 不在 PATH 上，
+则自动跳过。该脚本并未接入常规的 unittest 测试套件。
 """
 
 import shutil
@@ -24,6 +24,7 @@ TASK = (
 
 
 def _run(provider: str) -> dict:
+    # 根据供应商选择要执行的 CLI 可执行文件。
     binary = {"claude_cli": "claude", "codex_cli": "codex"}[provider]
     if shutil.which(binary) is None:
         return {"provider": provider, "skipped": f"{binary} not on PATH"}
@@ -48,6 +49,7 @@ def _run(provider: str) -> dict:
 
 
 def main():
+    # 逐个供应商跑一遍集成检查并打印结果。
     for provider in ("claude_cli", "codex_cli"):
         print(f"\n=== {provider} ===")
         outcome = _run(provider)

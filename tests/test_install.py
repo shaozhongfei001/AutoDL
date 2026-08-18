@@ -6,7 +6,11 @@ import install
 
 
 class InstallHelpersTests(unittest.TestCase):
+    """install 工具函数与「安装/卸载」流程的单元测试，覆盖 Claude 与 Codex 两套目标目录。"""
+
     def test_build_codex_skill_text_strips_argument_hint(self):
+        # Codex 技能正文不应保留仅供 Claude 使用的 argument-hint 字段，
+        # 并把技能调用占位符从 #/name 转为 $name 形式。
         source = """---
 name: auto-experiment
 description: "Launch experiment loop"
@@ -24,6 +28,8 @@ Body text.
         self.assertIn("# /auto-experiment", rendered)
 
     def test_install_and_uninstall_cover_claude_and_codex(self):
+        # 在临时目录中模拟一次从 repo 到两套目标（.claude / .codex）的安装，
+        # 再验证卸载能完整清除——所有路径都应落在临时目录内。
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = root / "repo"
@@ -77,6 +83,7 @@ Body text.
             self.assertFalse((codex_dir / "deep-researcher").exists())
 
     def test_install_refuses_to_overwrite_unowned_codex_skill(self):
+        # 若目标 codex 技能已存在且并非由本工具创建，安装必须拒绝覆盖（防误销毁外来文件）。
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo = root / "repo"

@@ -46,22 +46,27 @@ PAPER_JSON = json.dumps(
 
 
 class LiteratureToolTests(unittest.TestCase):
+    """文献检索类工具（search_arxiv / get_paper 等）的测试，含网络失败容错。"""
+
     def setUp(self):
-        # Backend is unused by the network tools, so a bare None-free stub is fine.
+        # 网络类工具不使用 backend，因此只用一个无副作用的空 stub 即可。
         self.registry = ToolRegistry(backend=object())
 
     def test_idea_agent_exposes_new_literature_tools(self):
+        # idea 角度应暴露文献检索相关工具。
         names = {t["name"] for t in self.registry.get_tools_for("idea")}
         self.assertIn("search_arxiv", names)
         self.assertIn("get_paper", names)
         self.assertIn("search_papers", names)
 
     def test_code_agent_exposes_repo_reading_tools(self):
+        # code 角度应暴露仓库读取相关工具。
         names = {t["name"] for t in self.registry.get_tools_for("code")}
         self.assertIn("list_tree", names)
         self.assertIn("search_code", names)
 
     def test_search_arxiv_parses_entries(self):
+        # 用预置的 Atom 样例（URL 请求被 mock）验证 arXiv 结果解析。
         with patch("urllib.request.urlopen", return_value=_FakeResponse(ARXIV_ATOM)):
             result = json.loads(self.registry.execute_tool("search_arxiv", {"query": "diffusion"}))
         self.assertEqual(len(result["papers"]), 1)
@@ -72,6 +77,7 @@ class LiteratureToolTests(unittest.TestCase):
         self.assertEqual(paper["abstract"], "We do something novel.")
 
     def test_get_paper_trims_references_and_citations(self):
+        # get_paper 应裁剪过长的参考文献/被引列表，避免单次响应过大。
         with patch("urllib.request.urlopen", return_value=_FakeResponse(PAPER_JSON)):
             result = json.loads(self.registry.execute_tool("get_paper", {"paper_id": "arXiv:2401.01234"}))
         self.assertEqual(result["title"], "A Great Paper")
@@ -79,10 +85,12 @@ class LiteratureToolTests(unittest.TestCase):
         self.assertEqual(len(result["citations"]), 25)
 
     def test_get_paper_empty_id_errors_without_network(self):
+        # 空 paper_id 应在不发网络请求的前提下直接返回错误。
         result = json.loads(self.registry.execute_tool("get_paper", {"paper_id": "  "}))
         self.assertIn("error", result)
 
     def test_search_arxiv_network_failure_is_graceful(self):
+        # 网络失败时应优雅降级为错误信息，而不是抛异常。
         with patch("urllib.request.urlopen", side_effect=OSError("boom")):
             result = json.loads(self.registry.execute_tool("search_arxiv", {"query": "x"}))
         self.assertIn("error", result)

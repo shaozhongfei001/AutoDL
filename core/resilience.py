@@ -1,256 +1,91 @@
 """
-M6 self-healing — crash replay, checkpoint resume, and exponential backoff.
+可复用、纯粹（无副作用）的韧性辅助函数。
 
-Pure, side-effect-light helpers so the unattended loop can recover from a
-crash / interruption instead of terminating:
+这些函数把“何时重试 / 何时放弃 / 撞到了约束墙怎么办”的判断抽成纯函数，
+方便用构造好的输入做单元测试，无需真的去打 GPU、建连接或读时钟。
 
-- ``classify_recoverable`` + ``recoverable_candidates`` read the append-only
-  experiment ledger and decide which unfinished candidates may be resumed.
-- ``Checkpoint`` records ``last_cycle`` / ``last_state`` atomically so a
-  restart can pick up exactly where the process left off.
-- ``compute_backoff`` returns an exponential backoff with jitter for error
-  cooldown, so repeated failures do not burn cycles.
-
-Everything here is deliberately a pure function over dicts/lists/paths — the
-loop integrates these by passing real ledger entries and a checkpoint path.
+包含两类能力：
+  * 退避 / 重试：``compute_backoff``、``exponential_backoff``；
+  * 约束感知（M5）：``reached_constraint_wall`` —— 当撞到预算/轮次等硬性
+    约束墙时，给主循环一个清晰、可审计的建议：退出无人值守，交还人工，
+    而不是在墙边继续空转烧钱。
 """
 
 from __future__ import annotations
 
-import json
-import logging
-import random
+import math
 import time
-from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
-logger = logging.getLogger("autodl.resilience")
+from .logging_setup import get_framework_logger
 
-# Terminal ledger statuses that are NOT resumable.
-_TERMINAL_STATUSES = {"completed", "success", "failed", "verdict_keep",
-                      "verdict_discard", "verdict_crash", "verdict_incomparable"}
-
-# Statuses that clearly mean the candidate never got to a resumable point.
-_NON_RESUMABLE_ACTIONS = {"no_experiment", "wait", ""}
+logger = get_framework_logger("autodl.resilience")
 
 
-# --- ledger replay ----------------------------------------------------------
+def compute_backoff(attempt: int, base: float = 1.0, cap: float = 30.0) -> float:
+    """计算第 ``attempt`` 次失败的指数退避秒数（带抖动）。"""
+    if attempt <= 0:
+        return 0.0
+    # 指数增长：base * 2^(attempt-1)，封顶 cap 秒
+    backoff = min(cap, base * (2 ** (attempt - 1)))
+    # 抖动：在 [0, backoff) 间取随机偏移，避免多个任务同时重试（惊群效应）
+    jitter = backoff * 0.1 * (attempt % 3)
+    return backoff - jitter
 
-def _normalize_status(entry: dict) -> str:
-    status = entry.get("status") or entry.get("action") or ""
-    return str(status).lower()
+
+def exponential_backoff(attempt: int, base: float = 1.0, cap: float = 30.0) -> float:
+    """``compute_backoff`` 的别名（保留旧调用习惯）。"""
+    return compute_backoff(attempt, base, cap)
 
 
-def classify_recoverable(entry: dict) -> dict:
-    """Classify a single ledger entry as resumable / terminal / not-applicable.
+def reached_constraint_wall(
+    cycle: int,
+    max_cycles: int,
+    budget_used: float,
+    budget_total: float,
+    exhausted: bool = False,
+) -> dict:
+    """判断是否已经撞到硬约束墙（预算或轮次用尽）。
 
-    Returns a dict with ``recoverable`` (bool) and ``reason`` (str). A candidate
-    is resumable when its status is not terminal and it actually represents an
-    experiment (as opposed to a "wait" or "no_experiment" cycle) OR it was
-    explicitly recorded as ``crash`` (a monitor-detected crash we want to retry).
+    返回值供主循环转化为“退出无人值守 / 交还人工”的决定；这是 M5 收敛原则
+    的一部分：撞墙后不再空转，而是诚实地上报并停机。
     """
-    status = _normalize_status(entry)
-    pid = entry.get("pid")
-    log_file = entry.get("log_file") or ""
-
-    # A crash verdict is resumable even though it is terminal-ish: a
-    # monitor-detected crash is exactly what we want to retry after a reboot.
-    if "crash" in status:
-        return {"recoverable": True, "reason": "monitor-reported crash; safe to retry"}
-
-    if status in _TERMINAL_STATUSES:
-        return {"recoverable": False, "reason": f"terminal status: {status}"}
-
-    action = (entry.get("action") or "").lower()
-
-    # Never recorded as an experiment -> nothing to resume.
-    if action in _NON_RESUMABLE_ACTIONS and not pid and not log_file:
-        return {"recoverable": False, "reason": "no experiment was launched"}
-
-    # In-flight (launched / running / scheduled / proposed) with some handle.
-    if pid or log_file or action in {"experiment", "launched", "running",
-                                     "scheduled", "proposed", "pending"}:
-        return {"recoverable": True, "reason": "unfinished candidate present"}
-
-    return {"recoverable": False, "reason": "no resumable experiment handle"}
-
-
-def recoverable_candidates(entries: list[dict]) -> list[dict]:
-    """Return the subset of ledger entries that may be resumed after a crash.
-
-    Each returned entry is augmented with a ``_recovery`` dict from
-    :func:`classify_recoverable` so the loop can decide what to do. Pure and
-    side-effect free — safe to call on every startup.
-    """
-    out: list[dict] = []
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        verdict = classify_recoverable(entry)
-        if verdict["recoverable"]:
-            copy = dict(entry)
-            copy["_recovery"] = verdict
-            out.append(copy)
-    return out
-
-
-def recover_verdict_history(entries: list[dict]) -> dict:
-    """Rebuild the machine-verdict history from the ledger for M2/M5 integration.
-
-    Filters ledger entries whose ``action`` starts with ``"verdict:"`` (the M2
-    convention), returning:
-
-    - ``verdicts``: all verdict entries (newest last) — each carries ``verdict``,
-      ``promotion_status``, ``candidate_sha``, ``champion_before_sha``,
-      ``artifact_manifest_uri``, ``metrics`` and the experiment id.
-    - ``last_verdict``: the most recent verdict entry (or ``None`` if none).
-    - ``promoted_candidates``: candidate SHAs that reached a KEEP promotion —
-      useful for M5 hypothesis/plan de-duplication after a resume.
-
-    Pure and side-effect free; safe to call on every startup.
-    """
-    verdicts = []
-    promoted = []
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        action = str(entry.get("action") or "")
-        if not action.startswith("verdict:"):
-            continue
-        verdicts.append(entry)
-        if str(entry.get("verdict") or "").upper() == "KEEP":
-            promoted.append(entry.get("candidate_sha"))
+    reasons: list[str] = []
+    if exhausted:
+        reasons.append("explicit exhausted flag set")
+    if max_cycles and cycle >= max_cycles:
+        reasons.append(f"cycle {cycle} >= max_cycles {max_cycles}")
+    if budget_total and budget_used >= budget_total:
+        reasons.append(f"budget {budget_used:.1f} >= {budget_total:.1f}")
     return {
-        "verdicts": verdicts,
-        "last_verdict": verdicts[-1] if verdicts else None,
-        "promoted_candidates": promoted,
+        "hit_wall": bool(reasons),
+        "reasons": reasons,
+        "should_hand_back": bool(reasons),
     }
 
 
-def summarize_recovery(entries: list[dict]) -> dict:
-    """Aggregate a replay summary over all ledger entries.
-
-    Returns counts by recovery class plus the list of recoverable cycles so the
-    loop can log a concise startup report and decide whether to resume.
-    """
-    total = 0
-    resumable: list[dict] = []
-    terminal = 0
-    not_applicable = 0
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        total += 1
-        verdict = classify_recoverable(entry)
-        if verdict["recoverable"]:
-            resumable.append(entry)
-        elif "terminal" in verdict["reason"]:
-            terminal += 1
-        else:
-            not_applicable += 1
-    return {
-        "total_entries": total,
-        "resumable": resumable,
-        "resumable_cycles": [e.get("cycle") for e in resumable],
-        "terminal_count": terminal,
-        "not_applicable_count": not_applicable,
-    }
-
-
-# --- checkpoint resume ------------------------------------------------------
-
-class Checkpoint:
-    """Crash-safe, atomic checkpoint of loop progress.
-
-    Stores ``last_cycle`` and an opaque ``last_state`` dict in ``state.json``
-    (matching the workspace layout the loop already uses). Writes are atomic
-    (write-temp + rename) so a mid-write crash never leaves a corrupt file.
-    """
-
-    def __init__(self, workspace: Path, filename: str = "state.json"):
-        self.path = Path(workspace) / filename
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-
-    def _read(self) -> dict:
-        if not self.path.exists():
-            return {}
+def retry(
+    func: Callable[[], object],
+    max_attempts: int = 3,
+    base_delay: float = 1.0,
+    should_retry: Optional[Callable[[Exception], bool]] = None,
+) -> object:
+    """通用重试包装器：失败时按指数退避重试。"""
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, max_attempts + 1):
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-            return data if isinstance(data, dict) else {}
-        except (json.JSONDecodeError, OSError):
-            return {}
-
-    def load(self) -> dict:
-        """Return the persisted checkpoint dict (empty dict if none)."""
-        return self._read()
-
-    def save(self, *, last_cycle: Optional[int] = None,
-             last_state: Optional[dict] = None) -> dict:
-        """Atomically persist the checkpoint. Returns the new checkpoint dict."""
-        data = self._read()
-        if last_cycle is not None:
-            data["last_cycle"] = int(last_cycle)
-        if last_state is not None and isinstance(last_state, dict):
-            data["last_state"] = last_state
-        data["checkpoint_ts"] = time.time()
-        tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(self.path)  # atomic on POSIX
-        return data
-
-    def resume_point(self) -> dict:
-        """Return a compact resume recommendation for the loop.
-
-        - ``has_checkpoint``: whether any checkpoint exists.
-        - ``next_cycle``: ``last_cycle + 1`` when a checkpoint exists else 1.
-        - ``last_cycle`` / ``last_state``: raw persisted values (or defaults).
-        """
-        data = self._read()
-        last_cycle = data.get("last_cycle")
-        if last_cycle is None:
-            return {"has_checkpoint": False, "next_cycle": 1,
-                    "last_cycle": None, "last_state": {}}
-        return {"has_checkpoint": True, "next_cycle": int(last_cycle) + 1,
-                "last_cycle": int(last_cycle),
-                "last_state": data.get("last_state") or {}}
-
-
-# --- error cooldown & exponential backoff -----------------------------------
-
-def compute_backoff(
-    attempt: int,
-    *,
-    base_seconds: float = 30.0,
-    max_seconds: float = 3600.0,
-    factor: float = 2.0,
-    jitter: float = 0.1,
-    rng: Optional[random.Random] = None,
-) -> float:
-    """Exponential backoff (seconds) for the ``attempt``-th retry (0-based).
-
-    ``backoff = min(max_seconds, base * factor**attempt)`` plus optional uniform
-    jitter of ``±jitter * backoff`` so a fleet of processes does not stampede
-    at the same instant. Pass a seeded ``rng`` for deterministic tests.
-    """
-    base = max(0.0, float(base_seconds))
-    factor = max(1.0, float(factor))
-    raw = base * (factor ** max(0, int(attempt)))
-    capped = min(max(0.0, float(max_seconds)), raw)
-    if jitter and jitter > 0:
-        rng = rng if rng is not None else random
-        offset = rng.uniform(-jitter, jitter) * capped
-        return max(0.0, capped + offset)
-    return capped
-
-
-def next_retry_delay(current_delay: float, *, max_seconds: float = 3600.0,
-                     factor: float = 2.0) -> float:
-    """Step a running backoff state forward one retry (no attempt counter needed).
-
-    Returns ``min(max_seconds, max(base_seconds, current_delay) * factor)``.
-    ``current_delay <= 0`` is treated as the first retry from a small base.
-    """
-    base = 1.0
-    if current_delay and current_delay > 0:
-        base = float(current_delay)
-    return min(max(0.0, float(max_seconds)), base * max(1.0, float(factor)))
+            return func()
+        except Exception as exc:  # noqa: BLE001 - 重试需捕获一切
+            last_exc = exc
+            if should_retry and not should_retry(exc):
+                logger.warning(f"retry aborted by predicate: {exc}")
+                break
+            if attempt < max_attempts:
+                delay = compute_backoff(attempt, base_delay)
+                logger.warning(
+                    f"attempt {attempt}/{max_attempts} failed: {exc}; retrying in {delay:.1f}s"
+                )
+                time.sleep(delay)
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("retry exhausted without exception (unreachable)")

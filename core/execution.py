@@ -1,9 +1,8 @@
 """
-Execution backends for Deep Researcher Agent.
+深度研究智能体的执行后端（Execution backends）。
 
-Local mode preserves the current behavior. SSH mode keeps the controller
-state local while running file operations, shell commands, training, log
-tailing, PID checks, and GPU inspection on one remote host.
+本地模式（local）保留当前行为。SSH 模式保持控制器状态在本地，而把文件操作、
+shell 命令、训练、日志尾随、PID 检查与 GPU 检查都跑在一台远程主机上。
 """
 
 from __future__ import annotations
@@ -23,8 +22,8 @@ from typing import Optional
 logger = logging.getLogger("autodl.execution")
 
 
-# Directories and files that repo-reading tools (list_tree / grep_files) skip,
-# so the agent sees source code instead of VCS metadata and build caches.
+# 仓库阅读类工具（list_tree / grep_files）跳过的目录，使智能体看到源码而非
+# VCS 元数据与构建缓存。
 WALK_SKIP_DIRS = {
     ".git",
     "__pycache__",
@@ -36,16 +35,15 @@ WALK_SKIP_DIRS = {
     ".idea",
     ".ipynb_checkpoints",
 }
-# grep_files skips files larger than this (likely data/binaries, not source).
+# grep_files 跳过大于此体积的文件（很可能是数据/二进制而非源码）。
 GREP_MAX_FILE_BYTES = 2_000_000
 
 
-# --- Slurm liveness taxonomy (used by SlurmExecutionBackend) ---
-# We map a job's `sacct` State to three buckets. Reference: `man sacct`
-# JOB STATE CODES. PENDING/RUNNING/etc. occupy a slot ("running"); COMPLETED
-# is "completed"; the rest are "failed". PREEMPTED is intentionally ABSENT:
-# under a requeue policy a preempted job returns to PENDING, so we let it fall
-# through to "unknown" (bounded grace) rather than reaping it early.
+# --- Slurm 存活状态分类（供 SlurmExecutionBackend 使用）---
+# 我们把任务的 `sacct` 状态映射到三个桶。参考：`man sacct` 的 JOB STATE CODES。
+# PENDING/RUNNING 等归入“运行中”；COMPLETED 为“已完成”；其余为“失败”。
+# 故意不包含 PREEMPTED：在 requeue 策略下被抢占的任务会回到 PENDING，因此我们
+# 让它落入“unknown”（有界宽限），而非过早回收。
 _SLURM_RUNNING_STATES = {
     "PENDING", "RUNNING", "REQUEUED", "RESIZING", "SUSPENDED",
     "CONFIGURING", "COMPLETING",
@@ -58,13 +56,12 @@ _SLURM_FAIL_STATES = {
 
 
 def _parse_slurm_time_seconds(spec: str) -> int:
-    """Parse a Slurm ``--time`` spec to seconds.
+    """把 Slurm 的 ``--time`` 规格解析成秒数。
 
-    Accepts the documented forms: ``minutes``, ``minutes:seconds``,
-    ``hours:minutes:seconds``, ``days-hours``, ``days-hours:minutes``,
-    ``days-hours:minutes:seconds``. Returns a large sentinel when unparseable
-    so the wall-clock liveness cap never fires spuriously (the consecutive
-    -unknown grace still bounds the loop).
+    接受文档形式：``minutes``、``minutes:seconds``、``hours:minutes:seconds``、
+    ``days-hours``、``days-hours:minutes``、``days-hours:minutes:seconds``。
+    无法解析时返回一个大哨兵值，使挂钟存活上限不会误触发（连续 unknown 的宽限
+    仍会约束循环）。
     """
     s = str(spec or "").strip()
     if not s:
@@ -81,7 +78,7 @@ def _parse_slurm_time_seconds(spec: str) -> int:
             minutes = int(parts[1]) if len(parts) >= 2 else 0
             seconds = int(parts[2]) if len(parts) >= 3 else 0
         elif len(parts) == 1:
-            hours, minutes, seconds = 0, int(parts[0]), 0          # bare minutes
+            hours, minutes, seconds = 0, int(parts[0]), 0          # 裸分钟
         elif len(parts) == 2:
             hours, minutes, seconds = 0, int(parts[0]), int(parts[1])  # minutes:seconds
         else:
@@ -91,6 +88,9 @@ def _parse_slurm_time_seconds(spec: str) -> int:
         return 10 ** 9
 
 
+# 远程助手脚本：被 base64 编码后通过 ssh 在远程主机上 exec 执行。它提供与本地
+# 后端一致的 JSON-over-stdin 工具传输（read_file / write_file / run_command /
+# launch_command / gpu_status / submit_slurm 等），并复用同一套路径穿越防护。
 REMOTE_HELPER = textwrap.dedent(
     """
     import json
@@ -131,6 +131,7 @@ REMOTE_HELPER = textwrap.dedent(
 
 
     def walk_tree(root, max_depth, max_entries):
+        # 受深度限制、跳过噪声目录的递归目录树列举
         max_depth = max(1, int(max_depth))
         max_entries = max(1, int(max_entries))
         entries = []
@@ -161,6 +162,7 @@ REMOTE_HELPER = textwrap.dedent(
 
 
     def grep_tree(root, base, pattern, max_results, ignore_case):
+        # 在 root 下扫描文本文件中的 pattern，返回 file/line/text 命中列表
         import re
         if not pattern:
             raise ValueError("Search pattern cannot be empty")
@@ -203,6 +205,7 @@ REMOTE_HELPER = textwrap.dedent(
 
 
     def gpu_status():
+        # 通过 nvidia-smi 查询 GPU 利用率与显存
         try:
             result = subprocess.run(
                 [
@@ -233,6 +236,7 @@ REMOTE_HELPER = textwrap.dedent(
 
 
     def main():
+        # 入口：从 stdin 读取 JSON 指令，执行对应 action，输出 JSON 结果
         payload = json.load(sys.stdin)
         root = pathlib.Path(payload["remote_workspace"]).expanduser().resolve(strict=False)
         action = payload["action"]
@@ -303,6 +307,7 @@ REMOTE_HELPER = textwrap.dedent(
             except subprocess.TimeoutExpired:
                 result = {"error": f"Command timed out after {int(payload.get('timeout_seconds', 120))}s"}
         elif action == "launch_command":
+            # 启动一个 detached 子进程，把输出写入日志文件，返回 PID
             log_file = payload["log_file"]
             log_path = resolve_path(root, log_file)
             log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -332,37 +337,35 @@ REMOTE_HELPER = textwrap.dedent(
         elif action == "get_gpu_status":
             result = gpu_status()
         elif action == "submit_slurm":
-            # Build the sbatch script HERE, in Python, with shell=False — no
-            # remote shell string is ever assembled from caller-supplied argv,
-            # so there is no injection surface. Then `sbatch --parsable` and
-            # EXIT: nothing persistent is left on the login node (the v7
-            # submit-and-exit invariant). Slurm enforces --time.
+            # 在这里（Python 中、shell=False）构造 sbatch 脚本——绝不从调用方传入
+            # 的 argv 拼出任何远程 shell 字符串，因此不存在注入面。然后调用
+            # `sbatch --parsable`，然后退出：登录节点上不留任何持久进程（即
+            # v7 “提交即退出”不变量）。Slurm 负责强制 --time。
             argv = payload["argv"]
             if not isinstance(argv, list) or not argv:
                 raise ValueError("submit_slurm requires a non-empty argv list")
             log_file = payload["log_file"]
-            log_path = resolve_path(root, log_file)        # reuses traversal guard
+            log_path = resolve_path(root, log_file)        # 复用路径穿越防护
             log_path.parent.mkdir(parents=True, exist_ok=True)
             root.mkdir(parents=True, exist_ok=True)
-            # Slurm assigns GPUs via --gres; an inherited CUDA_VISIBLE_DEVICES /
-            # GPU would pin every job to the wrong physical device. Strip them.
+            # Slurm 通过 --gres 分配 GPU；继承的 CUDA_VISIBLE_DEVICES / GPU 会把
+            # 每个任务都钉到错误的物理设备，因此剥除它们。
             env = {
                 k: v for k, v in (payload.get("env") or {}).items()
                 if k not in ("CUDA_VISIBLE_DEVICES", "GPU")
             }
             job_name = str(payload.get("job_name") or "ar_job")
-            # #SBATCH directive lines are tokenized by Slurm on whitespace
-            # (honoring double quotes), NOT run through a shell — so a path with
-            # spaces must be double-quoted. Strip any embedded double-quote to
-            # keep quoting unambiguous (paths realistically never contain one).
+            # #SBATCH 指令行由 Slurm 按空白分词（尊重双引号），而非经过 shell——
+            # 因此含空格的路径必须双引号包裹。剥离任何内嵌双引号以保持引号无歧义
+            # （路径实际从不含双引号）。
             def _q(value):
                 return chr(34) + str(value).replace(chr(34), "") + chr(34)
             lines = ["#!/bin/bash"]
             lines.append("#SBATCH --job-name=" + _q(job_name))
             lines.append("#SBATCH --partition=" + str(payload["partition"]))
             lines.append("#SBATCH --chdir=" + _q(str(root)))
-            # --output is relative; Slurm resolves it against --chdir, matching
-            # how tail_file(log_file) resolves it under the workspace root.
+            # --output 是相对路径；Slurm 相对 --chdir 解析它，与 tail_file(log_file)
+            # 在工作区根下解析的方式一致。
             lines.append("#SBATCH --output=" + _q(log_file))
             lines.append("#SBATCH --time=" + str(payload["time"]))
             raw_gres = payload.get("raw_gres") or ""
@@ -436,7 +439,7 @@ REMOTE_LAUNCHER = "import base64,sys;exec(base64.b64decode(sys.argv[1]).decode()
 
 
 def normalize_relative_path(path: str) -> str:
-    """Normalize a workspace-relative path and reject traversal."""
+    """规范化一个工作区相对路径，并拒绝路径穿越。"""
     if path is None or not str(path).strip():
         raise ValueError("Path cannot be empty")
 
@@ -451,6 +454,7 @@ def normalize_relative_path(path: str) -> str:
 
 
 def _resolve_under_root(root: Path, rel_path: str) -> Path:
+    # 解析出 root 下的真实路径，并强制其仍位于 root 内
     parts = [part for part in PurePosixPath(rel_path).parts if part not in ("", ".")]
     resolved = (root / Path(*parts)).resolve(strict=False)
     try:
@@ -461,7 +465,7 @@ def _resolve_under_root(root: Path, rel_path: str) -> Path:
 
 
 def _walk_tree(root: Path, base: Path, max_depth: int, max_entries: int) -> list[str]:
-    """Depth-limited recursive listing relative to `base`, skipping noise dirs."""
+    """相对 `base` 的受深度限制递归列举，跳过噪声目录。"""
     max_depth = max(1, int(max_depth))
     max_entries = max(1, int(max_entries))
     entries: list[str] = []
@@ -478,8 +482,7 @@ def _walk_tree(root: Path, base: Path, max_depth: int, max_entries: int) -> list
                 return
             if child.name in WALK_SKIP_DIRS:
                 continue
-            # Never follow or list symlinks: they can point outside the
-            # workspace, which would defeat the sandbox enforced elsewhere.
+            # 绝不跟随或列出符号链接：它们可指向工作区之外，从而破坏别处强制的沙箱。
             if child.is_symlink():
                 continue
             rel = child.relative_to(base).as_posix()
@@ -494,7 +497,7 @@ def _walk_tree(root: Path, base: Path, max_depth: int, max_entries: int) -> list
 
 
 def _grep_tree(root: Path, base: Path, pattern: str, max_results: int, ignore_case: bool) -> list[dict]:
-    """Scan text files under `root` for `pattern`, returning file/line/text hits."""
+    """在 `root` 下扫描文本文件中的 `pattern`，返回 file/line/text 命中。"""
     import re as _re
 
     if not pattern:
@@ -520,9 +523,8 @@ def _grep_tree(root: Path, base: Path, pattern: str, max_results: int, ignore_ca
         if len(hits) >= max_results:
             break
         try:
-            # os.walk does not descend symlinked dirs, but symlinked *files*
-            # still appear and would otherwise be opened — that could read a
-            # file outside the workspace. Skip any symlink target.
+            # os.walk 不向下进入符号链接目录，但符号链接*文件*仍会出现，否则会被
+            # 打开——那可能读取到工作区外的文件。跳过任何符号链接目标。
             if file_path.is_symlink():
                 continue
             if file_path.stat().st_size > GREP_MAX_FILE_BYTES:
@@ -540,13 +542,13 @@ def _grep_tree(root: Path, base: Path, pattern: str, max_results: int, ignore_ca
                         if len(hits) >= max_results:
                             break
         except (UnicodeDecodeError, PermissionError, OSError, ValueError):
-            # Binary file, unreadable, or escaped base — skip silently.
+            # 二进制文件、不可读、或逃逸出 base —— 静默跳过
             continue
     return hits
 
 
 class ExecutionBackend:
-    """Abstract execution backend."""
+    """执行后端抽象基类。"""
 
     def validate(self):
         raise NotImplementedError
@@ -591,19 +593,18 @@ class ExecutionBackend:
         raise NotImplementedError
 
     def final_status(self, pid: int) -> dict:
-        """Outcome of a finished job: ``{"state": <str>, "success": <bool|None>}``.
+        """已完成任务的结果：``{"state": <str>, "success": <bool|None>}``。
 
-        Default is indeterminate (``success=None``): backends that only track an
-        OS pid cannot recover an exit code after the process is gone, so the
-        caller keeps treating the run as "completed". The Slurm backend overrides
-        this with the real ``sacct`` terminal state so FAILED / TIMEOUT / CANCELLED
-        are not silently reported as success.
+        默认是不确定的（``success=None``）：只跟踪 OS pid 的后端在进程消失后无法
+        恢复退出码，因此调用方继续把它当作“已完成”。Slurm 后端会用真实的
+        ``sacct`` 终态覆盖此方法，使 FAILED / TIMEOUT / CANCELLED 不会被静默
+        当作成功。
         """
         return {"state": "unknown", "success": None}
 
 
 class LocalExecutionBackend(ExecutionBackend):
-    """Current on-machine behavior."""
+    """当前在本机上的行为。"""
 
     def __init__(self, workspace: Path):
         self.workspace = Path(workspace).resolve()
@@ -682,6 +683,7 @@ class LocalExecutionBackend(ExecutionBackend):
         }
 
     def launch_command(self, argv: list[str], log_file: str, env: Optional[dict] = None) -> dict:
+        # 启动一个 detached 子进程，输出写入日志文件，返回 PID
         rel_path = normalize_relative_path(log_file)
         log_path = _resolve_under_root(self.workspace, rel_path)
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -713,6 +715,7 @@ class LocalExecutionBackend(ExecutionBackend):
         return file_path.read_text().splitlines()[-lines:]
 
     def get_gpu_status(self) -> dict:
+        # 通过 nvidia-smi 查询 GPU 状态
         try:
             result = subprocess.run(
                 [
@@ -744,7 +747,7 @@ class LocalExecutionBackend(ExecutionBackend):
 
 
 class SSHExecutionBackend(ExecutionBackend):
-    """Run the tool-visible workspace on a remote host over SSH."""
+    """通过 SSH 在远程主机上运行对工具可见的工作区。"""
 
     def __init__(
         self,
@@ -843,14 +846,11 @@ class SSHExecutionBackend(ExecutionBackend):
         return self._invoke("get_gpu_status", transport_timeout=20)
 
     def _ssh_shell(self, remote_cmd: str, timeout: int = 15) -> subprocess.CompletedProcess:
-        """Run ONE transient remote shell command, reusing this backend's host
-        and ssh_args (single source of truth — no split-brain transport).
-
-        Used by the Slurm subclass for ``sacct`` / ``squeue`` / ``scancel``, the
-        only places an arbitrary remote shell string is needed. Each call runs
-        one command and returns immediately; nothing persistent is started on
-        the remote. The only values interpolated into these strings are
-        validated integers (job ids) or operator-controlled config.
+        """运行一次临时远程 shell 命令，复用本后端的 host 与 ssh_args（单一事实
+        来源——不存在分裂的传输）。供 Slurm 子类用于 `sacct` / `squeue` / `scancel`，
+        那是唯一需要任意远程 shell 字符串的地方。每次调用只运行一个命令并立即返回；
+        远程不启动任何持久进程。被插值进这些字符串的只有经过校验的整数（job id）
+        或操作员控制的配置。
         """
         return subprocess.run(
             ["ssh", *self.ssh_args, self.ssh_host, remote_cmd],
@@ -861,6 +861,7 @@ class SSHExecutionBackend(ExecutionBackend):
         )
 
     def _invoke(self, action: str, transport_timeout: int = 60, **kwargs) -> dict:
+        # 通过标准输入 JSON 把动作派发给远程助手脚本（同一套传输）
         payload = {
             "action": action,
             "remote_workspace": self.remote_workspace,
@@ -908,40 +909,33 @@ class SSHExecutionBackend(ExecutionBackend):
 
 
 class SlurmExecutionBackend(SSHExecutionBackend):
-    """Run experiments on a Slurm-managed cluster via a login node.
+    """通过登录节点在 Slurm 管理的集群上运行实验。
 
-    The login node shares an NFS workspace with the compute nodes, so every
-    file / repo-reading / ``run_command`` operation is inherited unchanged from
-    :class:`SSHExecutionBackend` (they run on the login node over the same
-    JSON-over-stdin helper transport). Only three things differ on a scheduler:
+    登录节点与计算节点共享 NFS 工作区，因此文件操作 / 仓库阅读 / ``run_command``
+    全部继承自 :class:`SSHExecutionBackend`（它们在同一个 JSON-over-stdin 助手传输
+    上运行于登录节点）。调度器上只有三处不同：
 
-      - **launch** — instead of starting a process, submit an ``sbatch`` job
-        with ``--parsable`` over ONE transient ssh call that exits immediately.
-        The integer Slurm job id is returned in the ``pid`` field so the
-        existing PID-keyed monitor / state.json plumbing works unchanged. No
-        ``srun --wait``, no ``tmux``, no polling loop is ever left on the login
-        node (the 2026-05-29 Tokyo-U MIL incident: a persistent login-node
-        process is impermissible).
-      - **liveness** — ``sacct`` is the sole authority while the cluster is
-        reachable; the controller polls it transiently. Slurm enforces
-        ``--time`` (reporting ``TIMEOUT``), so a running job always reaches a
-        terminal state on its own.
-      - **gpu status** — the login node has no usable ``nvidia-smi``; report
-        the partition's queue occupancy from ``squeue`` instead.
+      - **启动（launch）** —— 不启动进程，而是通过**一次**瞬时 ssh 调用提交一个
+        ``sbatch`` 作业（``--parsable``），调用立即退出。整数型的 Slurm job id 被
+        放入 ``pid`` 字段返回，从而现有的基于 PID 的 monitor / state.json 逻辑
+        保持不变。不留下任何 ``srun --wait`` / ``tmux`` / 轮询循环（2026-05-29
+        Tokyo-U MIL 事故：登录节点上的持久进程是不允许的）。
+      - **存活（liveness）** —— 在集群可达时 ``sacct`` 是唯一权威；控制器瞬时轮询它。
+        Slurm 强制 ``--time``（报告 ``TIMEOUT``），因此运行中的作业总会自行到达
+        终态。
+      - **GPU 状态** —— 登录节点没有可用的 ``nvidia-smi``；改用 ``squeue`` 上报
+        分区的队列占用情况。
 
-    Two safeguards live INSIDE :meth:`is_process_alive` so the monitor's
-    unbounded ``while is_process_alive(pid): sleep`` loop provably terminates
-    even if the cluster becomes unreachable. They apply ONLY when sacct cannot
-    confirm the job's state — a job sacct still reports as queued/running is
-    never reaped (a long PENDING queue wait is not bounded by ``--time``):
+    两道安全阀位于 :meth:`is_process_alive` **内部**，使得即便集群不可达，monitor
+    的无限 ``while is_process_alive(pid): sleep`` 循环也能被证明会终止。它们**仅**
+    在 sacct 无法确认任务状态时适用——一个 sacct 仍报告为排队/运行中的任务永不被
+    回收（长 PENDING 队列等待不受 ``--time`` 约束）：
 
-      1. *Bounded unknown grace* — after ``slurm_unknown_grace_polls``
-         consecutive indeterminate probes (ssh down / sacct purged), the job is
-         declared dead.
-      2. *Wall-clock backstop* — if the job is still unconfirmable once
-         ``--time`` + ``slurm_time_buffer`` has elapsed since the first poll,
-         it is declared dead (Slurm would have produced a terminal state by
-         then for any job that actually ran).
+      1. *有界 unknown 宽限* —— 在连续 ``slurm_unknown_grace_polls`` 次不确定探测
+         （ssh 宕机 / sacct 已清理）后，任务被宣告死亡。
+      2. *挂钟兜底* —— 若自首次轮询起 ``--time`` + ``slurm_time_buffer`` 已过去而
+         任务仍无法确认，它会被宣告死亡（Slurm 届时本已为任何真正运行过的作业
+         产生了终态）。
     """
 
     def __init__(
@@ -973,7 +967,7 @@ class SlurmExecutionBackend(SSHExecutionBackend):
         self.slurm_unknown_grace_polls = int(slurm_unknown_grace_polls)
         self.slurm_time_buffer = int(slurm_time_buffer)
         self._time_cap_seconds = _parse_slurm_time_seconds(slurm_time)
-        # Per-job liveness state, keyed by Slurm job id.
+        # 每个作业的存活状态，以 Slurm job id 为键
         self._first_seen: dict[int, float] = {}
         self._unknown_count: dict[int, int] = {}
         self._last_terminal: dict[int, str] = {}
@@ -989,10 +983,9 @@ class SlurmExecutionBackend(SSHExecutionBackend):
             raise ValueError("execution.slurm_time is required when execution.mode=slurm")
         if shutil.which("ssh") is None:
             raise RuntimeError("ssh binary not found on PATH")
-        # Workspace reachable + remote python OK (inherited helper transport).
+        # 工作区可达 + 远程 python 可用（继承的助手传输）
         self._invoke("validate", transport_timeout=30)
-        # Require ALL three tools: `command -v a b c` succeeds if ANY one
-        # resolves, so chain a check per tool.
+        # 需要全部三种工具：`command -v a b c` 任一存在即成功，因此逐个检查
         probe = self._ssh_shell(
             "command -v sbatch >/dev/null 2>&1 "
             "&& command -v sacct >/dev/null 2>&1 "
@@ -1006,13 +999,14 @@ class SlurmExecutionBackend(SSHExecutionBackend):
             )
 
     def launch_command(self, argv: list[str], log_file: str, env: Optional[dict] = None) -> dict:
+        # 提交 sbatch 作业，返回 Slurm job id（放进 pid 字段）
         normalized_log = normalize_relative_path(log_file)
         job_name = "ar_" + (Path(normalized_log).stem or "job")
         payload = self._invoke(
             "submit_slurm",
             argv=list(argv),
             log_file=normalized_log,
-            env=env or {},                       # remote helper strips CUDA_VISIBLE_DEVICES/GPU
+            env=env or {},                       # 远程助手会剥除 CUDA_VISIBLE_DEVICES/GPU
             partition=self.slurm_partition,
             time=self.slurm_time,
             gres=self.slurm_gpus_per_job,
@@ -1025,8 +1019,8 @@ class SlurmExecutionBackend(SSHExecutionBackend):
             transport_timeout=90,
         )
         job_id = int(payload["slurm_job_id"])
-        # `pid` carries the Slurm job id so the existing monitor / state.json /
-        # obsidian plumbing (which keys on `pid`) works without changes.
+        # `pid` 携带 Slurm job id，使现有的 monitor / state.json / obsidian 逻辑
+        # （都以 `pid` 为键）无需改动即可工作。
         return {
             "pid": job_id,
             "slurm_job_id": job_id,
@@ -1035,9 +1029,8 @@ class SlurmExecutionBackend(SSHExecutionBackend):
         }
 
     def _sacct_state(self, job_id: int) -> tuple[str, str]:
-        """Return (bucket, raw_state) for a Slurm job; bucket in
-        {running, completed, failed, unknown}. One transient sacct query, with
-        a squeue fallback for a job too new / already purged from accounting."""
+        """返回 Slurm 任务的 (桶, 原始状态)；桶 ∈ {running, completed, failed,
+        unknown}。一次瞬时 sacct 查询，并对过新 / 已从记账清除的任务回退到 squeue。"""
         cmd = f"sacct -j {int(job_id)} --format=State%30 -X -n -P 2>/dev/null | head -1"
         try:
             r = self._ssh_shell(cmd, timeout=15)
@@ -1046,8 +1039,8 @@ class SlurmExecutionBackend(SSHExecutionBackend):
         if r.returncode != 0:
             return "unknown", f"sacct_rc={r.returncode}"
         out = (r.stdout or "").strip()
-        # split()[0] drops a trailing " by <uid>" (e.g. "CANCELLED by 1001");
-        # .replace("+","") strips the "CANCELLED+" suffix Slurm appends.
+        # split()[0] 丢弃后缀 " by <uid>"（如 "CANCELLED by 1001"）；.replace("+","")
+        # 剥离 Slurm 追加的 "CANCELLED+" 后缀。
         raw = out.split()[0].replace("+", "").upper() if out else ""
         if not raw:
             sq = f"squeue -j {int(job_id)} -h -o '%T' 2>/dev/null | head -1"
@@ -1067,38 +1060,34 @@ class SlurmExecutionBackend(SSHExecutionBackend):
         return "unknown", raw
 
     def is_process_alive(self, pid: int) -> bool:
-        """Alive iff the Slurm job is in a running-bucket state. Indeterminate
-        probes keep the job alive only for a bounded number of consecutive
-        polls; a job is also force-reaped past ``--time`` + buffer. Both bounds
-        guarantee the monitor's polling loop always terminates."""
+        """仅当 Slurm 任务处于“运行中”桶时才算存活。不确定的探测只在一个有界的
+        连续轮数内保持任务存活；一旦超过 ``--time`` + 缓冲也仍无法确认，则强制回收。
+        两道边界共同保证 monitor 的轮询循环总是会终止。"""
         job_id = int(pid)
         now = time.time()
         first = self._first_seen.setdefault(job_id, now)
         bucket, raw = self._sacct_state(job_id)
         if bucket == "running":
-            # PENDING/RUNNING/etc. are authoritative. A long queue wait is NOT
-            # bounded by --time (which only counts while RUNNING), so never reap
-            # a job sacct still confirms is queued or running.
+            # PENDING/RUNNING 等是权威的。长队列等待不受 --time 约束（--time 只统计
+            # 运行期间），因此绝不回收一个 sacct 仍确认排队或运行的任务。
             self._unknown_count[job_id] = 0
             return True
         if bucket in ("completed", "failed"):
             self._last_terminal[job_id] = raw
             return False
-        # Indeterminate (ssh/sacct unreachable, or the job purged from both
-        # sacct and squeue). Two bounds keep the monitor's polling loop finite
-        # WITHOUT ever reaping a job sacct confirms is live:
-        #   - a wall-clock backstop: Slurm enforces --time, so once --time +
-        #     buffer has elapsed and we STILL cannot confirm the job, it is
-        #     almost certainly gone;
-        #   - a consecutive-unknown grace for shorter outages.
+        # 不确定（ssh/sacct 不可达，或任务已从 sacct 与 squeue 都清除）。两道边界
+        # 使 monitor 轮询循环有限，同时绝不回收 sacct 确认存活的任务：
+        #   - 挂钟兜底：Slurm 强制 --time，因此一旦 --time + 缓冲已过而我们仍无法
+        #     确认任务，它几乎可以确定已经消失；
+        #   - 连续 unknown 宽限：应付较短的中断。
         if now - first > self._time_cap_seconds + self.slurm_time_buffer:
             return False
         self._unknown_count[job_id] = self._unknown_count.get(job_id, 0) + 1
         return self._unknown_count[job_id] <= self.slurm_unknown_grace_polls
 
     def get_gpu_status(self) -> dict:
-        """Report the partition's queue occupancy (login node has no usable
-        nvidia-smi). Advisory only — the monitor just logs ``utilization``."""
+        """上报分区的队列占用情况（登录节点无可用的 nvidia-smi）。仅建议性——
+        monitor 只是把 ``utilization`` 记入日志。"""
         cmd = (
             "squeue --me -p " + shlex.quote(self.slurm_partition)
             + " --states=PD,R -h -o '%T' 2>/dev/null | sort | uniq -c"
@@ -1126,9 +1115,8 @@ class SlurmExecutionBackend(SSHExecutionBackend):
         }
 
     def cancel(self, pid: int) -> bool:
-        """Best-effort ``scancel`` for a Slurm job. Not wired into a caller yet
-        (orphaned jobs are otherwise reclaimed by ``--time``); available for a
-        future kill-on-shutdown path."""
+        """对 Slurm 任务尽力 ``scancel``。尚未接入任何调用方（孤立任务本会被
+        ``--time`` 回收）；预留给未来的“关闭时 kill”路径。"""
         try:
             r = self._ssh_shell("scancel " + str(int(pid)), timeout=8)
             return r.returncode == 0
@@ -1136,17 +1124,15 @@ class SlurmExecutionBackend(SSHExecutionBackend):
             return False
 
     def last_terminal_state(self, pid: int) -> Optional[str]:
-        """Raw sacct state of a finished job, if observed (e.g. ``TIMEOUT``)."""
+        """已完成任务的原始 sacct 状态（若被观测到，如 ``TIMEOUT``）。"""
         return self._last_terminal.get(int(pid))
 
     def final_status(self, pid: int) -> dict:
-        """Real outcome from the observed ``sacct`` terminal state.
+        """来自观测到的 ``sacct`` 终态的真实结果。
 
-        ``success`` is True only for ``COMPLETED``; ``FAILED`` / ``TIMEOUT`` /
-        ``CANCELLED`` / ``OUT_OF_MEMORY`` / … are reported as failures. If the
-        job was never observed reaching a terminal state (e.g. the cluster went
-        unreachable and it was reaped by the wall-clock backstop), the outcome
-        is indeterminate.
+        ``success`` 仅对 ``COMPLETED`` 为 True；``FAILED`` / ``TIMEOUT`` /
+        ``CANCELLED`` / ``OUT_OF_MEMORY`` / … 都报告为失败。若任务从未被观测到
+        到达终态（例如集群不可达并被挂钟兜底回收），则结果不确定。
         """
         raw = self._last_terminal.get(int(pid))
         if raw is None:
@@ -1155,7 +1141,7 @@ class SlurmExecutionBackend(SSHExecutionBackend):
 
 
 def build_execution_backend(config: Optional[dict], controller_workspace: Path) -> ExecutionBackend:
-    """Construct the execution backend from project config."""
+    """依据项目配置构造执行后端。"""
     config = config or {}
     execution = config.get("execution", {}) or {}
     mode = execution.get("mode", "local")

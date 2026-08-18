@@ -23,7 +23,10 @@ class _AnthropicResponse:
 
 
 class CompatibleProviderConfigTests(unittest.TestCase):
+    """验证 OpenAI / Anthropic 两类兼容协议的配置透传（base_url、key 与自定义 env）。"""
+
     def test_openai_compatible_provider_passes_base_url_and_custom_key_env(self):
+        # 使用兼容 OpenAI 协议的第三方服务（如通义千问），应透传 base_url 与自定义 key 环境变量。
         create = MagicMock(return_value=_OpenAIResponse("qwen ok"))
         client = types.SimpleNamespace(
             chat=types.SimpleNamespace(
@@ -55,6 +58,7 @@ class CompatibleProviderConfigTests(unittest.TestCase):
         self.assertEqual(result, "qwen ok")
 
     def test_anthropic_compatible_provider_passes_base_url_and_auth(self):
+        # 使用兼容 Anthropic 协议的第三方服务（如 MiniMax），应透传 base_url 与 key/token。
         create = MagicMock(return_value=_AnthropicResponse("minimax ok"))
         client = types.SimpleNamespace(
             messages=types.SimpleNamespace(create=create)
@@ -94,7 +98,10 @@ class CompatibleProviderConfigTests(unittest.TestCase):
 
 
 class DomesticProviderPresetTests(unittest.TestCase):
+    """国内厂商预置配置测试：deepseek / qwen / kimi / glm 别名解析与优先覆盖规则。"""
+
     def test_preset_fills_base_url_and_key_env_and_routes_via_openai(self):
+        # 预置应自动填充 base_url 与 key 环境变量，并统一路由到 OpenAI 协议路径。
         with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "ds-secret"}, clear=False):
             d = AgentDispatcher(provider="deepseek", model="deepseek-chat")
         self.assertEqual(d.provider, "openai")          # routed through the OpenAI path
@@ -104,6 +111,7 @@ class DomesticProviderPresetTests(unittest.TestCase):
         self.assertEqual(d.model, "deepseek-chat")      # model passed through verbatim
 
     def test_preset_aliases_resolve(self):
+        # 各厂商别名应解析出其对应服务域名。
         for name, host in [
             ("qwen", "dashscope.aliyuncs.com"),
             ("kimi", "api.moonshot.cn"),
@@ -114,6 +122,7 @@ class DomesticProviderPresetTests(unittest.TestCase):
             self.assertIn(host, d.base_url)
 
     def test_explicit_base_url_and_key_env_override_preset(self):
+        # 显式指定的 base_url 与 key 环境变量应覆盖预置默认值。
         with patch.dict(os.environ, {"MY_KEY": "k"}, clear=False):
             d = AgentDispatcher(
                 provider="deepseek", model="deepseek-chat",
@@ -142,6 +151,8 @@ class DomesticProviderPresetTests(unittest.TestCase):
 
 
 class ResearchLoopProviderConfigTests(unittest.TestCase):
+    """验证 ResearchLoop 把 LLM 供应商配置正确下发给 AgentDispatcher 并校验后端。"""
+
     @patch("core.loop.AgentDispatcher")
     @patch("core.loop.ToolRegistry")
     @patch("core.loop.ObsidianExporter")

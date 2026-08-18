@@ -1,3 +1,4 @@
+"""环境检查脚本：打印 PyTorch / torchvision 版本与 CUDA 可用性。"""
 import torch, torchvision
 print("torch", torch.__version__)
 print("torchvision", torchvision.__version__)

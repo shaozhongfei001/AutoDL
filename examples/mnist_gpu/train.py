@@ -1,3 +1,9 @@
+"""MNIST GPU 训练脚本（示例 / 候选基线）。
+
+演示如何在 G1 约束下书写训练脚本：固定验证集、定时训练、最后打印结构化
+``RESULT {...}`` 供 monitor 解析。注意：本文件是**示例 / 候选**代码，不属于 G1
+运行时代码（G1 allowlist 唯一文件是 examples/llm_finetune/train_ft.py）。
+"""
 import argparse
 import time
 import torch
@@ -9,10 +15,10 @@ from torchvision import datasets, transforms
 device = 'cuda'
 
 
-# ============ Model Definition ============
-# MNIST: 28x28 input.
-# Conv1 (padding=1, 3x3): 28 -> 28, ReLU, MaxPool2x2: 14x14
-# Conv2 (padding=1, 3x3): 14 -> 14, ReLU, MaxPool2x2: 7x7  -> 64*7*7
+# ============ 模型定义 ============
+# MNIST：输入 28x28。
+# Conv1 (padding=1, 3x3)：28 -> 28，ReLU，MaxPool2x2：14x14
+# Conv2 (padding=1, 3x3)：14 -> 14，ReLU，MaxPool2x2：7x7  -> 64*7*7
 class CNN(nn.Module):
     def __init__(self):
         super(CNN, self).__init__()
@@ -40,6 +46,7 @@ class CNN(nn.Module):
 
 
 def set_seed(seed):
+    # 固定随机种子以保证可复现
     import random
     random.seed(seed)
     torch.manual_seed(seed)
@@ -52,7 +59,7 @@ def main():
     parser.add_argument('--epochs', type=int, default=8)
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--seed', type=int, default=17,
-                        help='random seed; also drives validation holdout split reproducibility')
+                        help='随机种子；同时驱动验证集 holdout 切分的可复现性')
     parser.add_argument('--dry_run', action='store_true')
     args = parser.parse_args()
 
@@ -60,7 +67,7 @@ def main():
     batch_size = args.batch_size
     set_seed(args.seed)
 
-    # ============ Data Loading ============
+    # ============ 数据加载 ============
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
@@ -79,9 +86,9 @@ def main():
         transform=transform
     )
 
-    # ============ Validation Holdout (iterative selection only) ============
-    # Fixed split seed 20260815 => reproducible 5000-sample holdout from train set.
-    # validation is used for per-round selection; test is reserved for independent acceptance.
+    # ============ 验证集 holdout（仅用于迭代选择）============
+    # 固定切分种子 20260815 => 可复现地分出训练集中的 5000 样本验证集。
+    # 验证集用于逐轮选择；测试集保留给独立验收。
     SPLIT_SEED = 20260815
     g = torch.Generator().manual_seed(SPLIT_SEED)
     n_val = 5000
@@ -93,14 +100,14 @@ def main():
     val_loader = DataLoader(val_sub, batch_size=64, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 
-    # ============ Model / Loss / Optimizer ============
+    # ============ 模型 / 损失 / 优化器 ============
     model = CNN().to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     batches_per_epoch = 2 if args.dry_run else len(train_loader)
 
-    # ============ Evaluation helper (validation holdout, selection) ============
+    # ============ 评估辅助函数（验证集 holdout，选择用）============
     def evaluate(loader):
         model.eval()
         correct = 0
@@ -119,7 +126,7 @@ def main():
         avg_loss = running_loss / total
         return acc, avg_loss
 
-    # ============ Training (timed: active_train_seconds) ============
+    # ============ 训练（计时：active_train_seconds）============
     train_start = time.monotonic()
     val_accuracy = 0.0
     val_loss = 0.0
@@ -148,26 +155,26 @@ def main():
         avg_loss = running_loss / batches_per_epoch
         accuracy = correct / total
         print('Epoch {}/{}: loss={:.4f} acc={:.4f}'.format(epoch, n_epochs, avg_loss, accuracy))
-        # Per-epoch validation metric (early-stop contract): the monitor parses
-        # this sequence to detect a plateau and terminate a converged run early.
-        val_accuracy, val_loss = evaluate(val_loader)
+        # 逐 epoch 验证指标（早停契约用）：monitor 解析这个序列来检测平台期，并在
+        # 模型收敛时提前终止运行，节省 GPU。
+        val_accuracy, val_loss = evaluate(val_loader)[0], evaluate(val_loader)[1]
         print('validation_accuracy={:.4f}'.format(val_accuracy))
     active_train_seconds = time.monotonic() - train_start
 
-    # ============ Evaluation: test (independent acceptance only) ============
+    # ============ 评估：测试集（仅独立验收用）============
     test_accuracy, test_loss = evaluate(test_loader)
     print('test_accuracy={:.4f}'.format(test_accuracy))
     print('test_loss={:.4f}'.format(test_loss))
 
-    # ============ Budget / metric reporting ============
+    # ============ 预算 / 指标上报 ============
     print('active_train_seconds={:.2f}'.format(active_train_seconds))
     print('seed={}'.format(args.seed))
     print('epochs={}'.format(n_epochs))
     print('batch_size={}'.format(batch_size))
 
-    # ============ Structured metric contract (monitor parses) ============
-    # Single-line JSON printed as the LAST stdout line; validation_* drives
-    # per-round selection, test_* is reserved for independent acceptance.
+    # ============ 结构化指标契约（monitor 解析）============
+    # 作为最后一行 stdout 打印的单行 JSON；validation_* 驱动逐轮选择，
+    # test_* 保留给独立验收。
     import json
     print('RESULT ' + json.dumps({
         'validation_accuracy': round(val_accuracy, 4),
@@ -176,7 +183,7 @@ def main():
         'test_loss': round(test_loss, 4),
     }))
 
-    # ============ Save model ============
+    # ============ 保存模型 ============
     torch.save(model.state_dict(), './model.pt')
 
 

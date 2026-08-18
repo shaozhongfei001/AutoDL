@@ -1,18 +1,16 @@
 """
-Experiment Validity Contract (P0-1) + Protected Write Boundary (P0-2/D0).
+实验有效性契约（P0-1）+ 受保护写边界（P0-2/D0）。
 
-Implements the SDD ADR-001 / ADR-002 design in a backwards-compatible way:
+以向后兼容的方式实现 SDD ADR-001 / ADR-002 设计：
 
-  * A (experiment validity contract): schema-validated config for
-    budget / evaluation / comparability; a fingerprint helper so candidate
-    runs are only compared when they share dataset+evaluator+cohort+budget.
-  * D0 (protected write boundary): allowlist / denylist rules and a
-    protected-file hash gate, so the agent cannot mutate evaluators, data,
-    tests, or governance without an explicit allowance.
+  * A（实验有效性契约）：对 budget / evaluation / comparability 做 schema 校验；
+    提供指纹辅助函数，使得候选运行只有在 dataset+evaluator+cohort+budget
+    一致时才相互可比。
+  * D0（受保护写边界）：allowlist / denylist 规则 + 受保护文件哈希门，使智能体
+    在没有显式授权时，无法修改 evaluator、data、tests、governance 等。
 
-All functions are additive: the existing loop keeps working when the new
-config keys are absent (defaults preserve current behavior). Failures are
-advisory where possible and never crash the loop by themselves.
+所有函数都是“增量式”的：当新的 config 字段缺失时，现有 loop 仍照常工作
+（默认值保留原有行为）。校验尽量只做“建议性”提示，自身绝不导致 loop 崩溃。
 """
 
 from __future__ import annotations
@@ -26,21 +24,23 @@ from typing import Optional
 logger = logging.getLogger("autodl.contract")
 
 
-# --- Schema / defaults -----------------------------------------------------
+# --- Schema / 默认值 -----------------------------------------------------
 
+# 预算默认值：limit=0 / hard_wall_clock_limit=0 表示“不强制预算”（旧行为）
 DEFAULT_BUDGET = {
     "mode": "active_wall_clock_seconds",
-    "limit": 0,                 # 0 => no budget enforcement (legacy behavior)
-    "hard_wall_clock_limit": 0,  # 0 => no hard cap (legacy behavior)
+    "limit": 0,                 # 0 => 不强制执行预算（旧行为）
+    "hard_wall_clock_limit": 0,  # 0 => 无硬上限（旧行为）
     "timer": "monotonic",
 }
 
+# 支持的预算计量模式
 SUPPORTED_BUDGET_MODES = {"active_wall_clock_seconds", "optimizer_steps", "samples_or_tokens"}
 
 DEFAULT_EVALUATION = {
     "primary_metric": {"name": "", "direction": "maximize", "unit": ""},
-    "validation_metrics": [],   # names whose values drive per-round selection
-    "test_metrics": [],         # names reserved for independent acceptance only
+    "validation_metrics": [],   # 驱动逐轮选择的指标名
+    "test_metrics": [],         # 仅预留给独立验收的指标名
     "minimum_effect_size": 0.0,
 }
 
@@ -51,13 +51,14 @@ DEFAULT_COMPARABILITY = {
 
 
 def _schema_error(path: str, detail: str) -> str:
+    # 构造一条 schema 错误信息
     return f"experiment.{path}: {detail}"
 
 
 def validate_experiment_config(cfg: dict) -> list[str]:
-    """Return a list of schema violations for ``cfg`` (the ``experiment`` block).
+    """返回 ``cfg``（``experiment`` 配置块）的 schema 违规列表。
 
-    Returns an empty list when valid or when the block is absent (legacy mode).
+    当配置块缺失（旧模式）或完全合法时，返回空列表。
     """
     if not isinstance(cfg, dict):
         return [_schema_error("", "experiment block must be a mapping")]
@@ -104,19 +105,19 @@ def validate_experiment_config(cfg: dict) -> list[str]:
     return errors
 
 
-# --- Fingerprint / comparability -------------------------------------------
+# --- 指纹 / 可比性 -------------------------------------------------------
 
 def compute_fingerprint(fields: dict) -> str:
-    """Deterministic SHA-256 over a set of comparability-relevant fields."""
+    """对一组可比性相关字段计算确定性的 SHA-256 指纹。"""
     canonical = json.dumps(fields, sort_keys=True, default=str)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def comparability_fingerprint(cfg: dict, data_fingerprint: str = "", evaluator_fingerprint: str = "") -> dict:
-    """Build the comparability fingerprint dict for a config block.
+    """为配置块构建可比性指纹字典。
 
-    ``data_fingerprint`` / ``evaluator_fingerprint`` fall back to the values
-    declared under ``experiment.comparability`` when not passed explicitly.
+    ``data_fingerprint`` / ``evaluator_fingerprint`` 若未显式传入，则回退到
+    ``experiment.comparability`` 下声明的值。
     """
     experiment = cfg.get("experiment") or {}
     comparability = experiment.get("comparability") or DEFAULT_COMPARABILITY
@@ -145,13 +146,12 @@ def comparability_fingerprint(cfg: dict, data_fingerprint: str = "", evaluator_f
 
 
 def are_comparable(a: dict, b: dict) -> bool:
-    """True when two runs share the same comparability fingerprint (so an
-    automatic promotion decision is valid). Always True in legacy mode."""
+    """两个运行是否共享同一可比性指纹（从而自动晋级判定有效）。旧模式下恒为 True。"""
     if not a or not b:
         return True
     if a.get("requires_exact_cohort", True) or b.get("requires_exact_cohort", True):
         return a.get("hash") == b.get("hash")
-    # Both opted out of exact cohort: still require budget + evaluator + data.
+    # 双方都放弃精确 cohort 要求时：仍要求 budget + evaluator + data 一致。
     return (
         a.get("budget_mode") == b.get("budget_mode")
         and a.get("budget_limit") == b.get("budget_limit")
@@ -160,9 +160,10 @@ def are_comparable(a: dict, b: dict) -> bool:
     )
 
 
-# --- Budget helpers --------------------------------------------------------
+# --- 预算辅助函数 --------------------------------------------------------
 
 def resolve_budget(experiment: dict) -> dict:
+    # 解析预算配置，返回带 enforced 标志的字典
     budget = (experiment or {}).get("budget") or DEFAULT_BUDGET
     try:
         limit = float(budget.get("limit", 0))
@@ -181,15 +182,15 @@ def resolve_budget(experiment: dict) -> dict:
 
 
 def _aggregate_metric(value):
-    """Aggregate a primary-metric value into a single float.
+    """把一个主指标值聚合成单个 float。
 
-    Supports a list/tuple (multiple seeds -> mean), a single numeric/string,
-    and rejects booleans. Returns ``None`` when the value is not usable.
+    支持 list/tuple（多个 seed -> 取均值）、单个数值/字符串；拒绝 bool。
+    当值不可用（None / 不可解析）时返回 ``None``。
     """
     if value is None:
         return None
     if isinstance(value, bool):
-        return None  # bool is an invalid metric signal
+        return None  # bool 不是合法的指标信号
     if isinstance(value, (list, tuple)):
         if not value:
             return None
@@ -217,22 +218,21 @@ def decide_verdict(
     confidence_rule: str = "exceed_min_effect_size",
     noise_std: float = 0.0,
 ) -> dict:
-    """Machine-authoritative promotion verdict (ADR-002 / P3 statistical).
+    """机器权威的晋级 verdict（ADR-002 / P3 统计）。
 
-    Compares a candidate against the current champion on ``primary_metric``.
-    Returns a dict with ``verdict`` in {KEEP, DISCARD, INCOMPARABLE} and a
-    numeric ``delta``.
+    比较候选与当前冠军在 ``primary_metric`` 上的表现。返回 ``verdict`` 为
+    KEEP / DISCARD / INCOMPARABLE 之一，并附带数值 ``delta``。
 
-    P3 additions:
-    * ``candidate_metrics[primary]`` / ``champion_metrics[primary]`` may be a
-      list of seed runs -> aggregated to their mean before comparison.
-    * ``noise_std`` (measured across seeds) tightens the effect-size bar:
-      ``effective = max(configured min_effect_size, 2 * noise_std)`` so a
-      candidate that improves by less than the measurement noise is never KEEP.
+    P3 新增：
+    * ``candidate_metrics[primary]`` / ``champion_metrics[primary]`` 可以是多个
+      seed 运行的列表 -> 比较前先聚合成均值。
+    * ``noise_std``（跨 seed 测得的噪声）会收紧效应量门槛：
+      ``effective = max(配置的最小效应量, 2 * noise_std)``，使“提升小于测量噪声”
+      的候选永远不会被 KEEP。
 
-    When either side lacks the metric the verdict is INCOMPARABLE.
+    当任一方缺少该指标时，verdict 为 INCOMPARABLE。
     """
-    # --- robustness guards (P1) ---
+    # --- 健壮性守卫（P1）---
     if not primary_metric or not isinstance(primary_metric, str):
         return {"verdict": "INCOMPARABLE", "reason": "primary_metric missing or invalid", "delta": None}
     if direction not in ("maximize", "minimize"):
@@ -241,8 +241,8 @@ def decide_verdict(
             "reason": f"invalid direction '{direction}' (must be maximize/minimize)",
             "delta": None,
         }
-    # effect size must be a non-negative number; coerce numeric strings, reject
-    # anything unparseable instead of letting a later comparison throw.
+    # 效应量必须是非负数字；能解析数值字符串就解析，解析不了则拒绝，
+    # 而不是留到后面比较时才抛异常。
     try:
         effect_size = float(minimum_effect_size) if minimum_effect_size not in (None, "", 0, 0.0) else 0.0
         if effect_size < 0:
@@ -263,7 +263,7 @@ def decide_verdict(
             "reason": f"noise_std not numeric: {noise_std!r}",
             "delta": None,
         }
-    # Effective bar: configured effect size, raised by measured noise (2x rule).
+    # 有效门槛：配置的效应量，再叠加上测量噪声（2 倍规则）收紧。
     effective_effect = max(effect_size, 2.0 * noise_std_f) if noise_std_f > 0 else effect_size
 
     if not isinstance(candidate_metrics, dict) or not isinstance(champion_metrics, dict):
@@ -301,23 +301,21 @@ def decide_verdict(
     }
 
 
-# Contract statuses that are clean enough to allow a candidate to be promoted.
-# An empty status (legacy monitor without a configured budget) is treated as SUCCESS.
+# 足以允许候选晋级的“干净契约状态”集合。
+# 空状态（未配置预算的旧 monitor）按 SUCCESS 处理。
 CLEAN_CONTRACT_STATUSES = {"SUCCESS", ""}
 
 
 def gate_verdict_by_contract_status(verdict: dict, contract_status: str) -> dict:
-    """Apply the run's ``contract_status`` as a hard gate on a machine verdict.
+    """用运行的 ``contract_status`` 作为机器 verdict 的硬性闸门。
 
-    ``contract_status`` is one of SUCCESS / BUDGET_EXCEEDED / TIMEOUT / CRASH
-    (produced by :func:`classify_run_outcome`). A run that did not finish
-    cleanly must never be KEEP, regardless of what the raw metric comparison
-    says — promoting a budget-killed or crashed run would violate the
-    "champion never regresses" invariant.
+    ``contract_status`` 取值为 SUCCESS / BUDGET_EXCEEDED / TIMEOUT / CRASH
+    （由 :func:`classify_run_outcome` 产生）。一个未干净完成的运行绝不能被
+    KEEP——无论原始指标比较结果如何——因为晋级一个被预算杀死或崩溃的候选会
+    违反“冠军永不回退”的不变量。
 
-    Legacy behavior (empty status) is treated as SUCCESS so the verdict passes
-    through unchanged. Returns a verdict dict with ``verdict`` in
-    {KEEP, DISCARD, INCOMPARABLE} plus a ``contract_status`` key.
+    旧模式（空状态）按 SUCCESS 处理，使 verdict 原样通过。返回带有 ``verdict``
+    与 ``contract_status`` 键的 verdict 字典。
     """
     if not isinstance(verdict, dict):
         return {
@@ -338,17 +336,17 @@ def gate_verdict_by_contract_status(verdict: dict, contract_status: str) -> dict
             "delta": verdict.get("delta"),
             "contract_status": status,
         }
-    # KEEP stays KEEP; DISCARD/INCOMPARABLE are already conservative.
+    # KEEP 保持 KEEP；DISCARD/INCOMPARABLE 本就保守，无需改动。
     out = dict(verdict)
     out["contract_status"] = status
     return out
 
 
 def classify_run_outcome(active_train_seconds: float, budget: dict, terminated: str = "completed") -> str:
-    """Map wall-clock elapsed time + budget + termination source to a status.
+    """把挂钟耗时 + 预算 + 终止来源映射成一个状态。
 
-    Returns one of: ``SUCCESS`` / ``BUDGET_EXCEEDED`` / ``TIMEOUT`` / ``CRASH``.
-    In legacy mode (budget not enforced) a completed run is always SUCCESS.
+    返回 SUCCESS / BUDGET_EXCEEDED / TIMEOUT / CRASH 之一。旧模式（不强制预算）
+    下，completed 的运行恒为 SUCCESS。
     """
     if terminated == "crash":
         return "CRASH"
@@ -363,12 +361,11 @@ def classify_run_outcome(active_train_seconds: float, budget: dict, terminated: 
     return "SUCCESS" if terminated == "completed" else "CRASH"
 
 
-# --- Protected write boundary (D0) ------------------------------------------
+# --- 受保护写边界（D0）---------------------------------------------------
 
-# D0 default write boundary: by default we protect the critical denylist
-# boundaries (evaluator/data/config/tests/governance/artifacts) but do NOT
-# restrict ordinary file writes. Set an explicit allowlist in config to narrow
-# writes to specific files/dirs (e.g. for a strict candidate worktree).
+# D0 默认写边界：默认保护若干关键的 denylist 边界（evaluator/data/config/tests/
+# governance/artifacts），但不限制普通文件写入。在 config 中设置显式 allowlist
+# 可把写入收窄到特定文件/目录（例如在严格的候选 worktree 场景下）。
 DEFAULT_WRITE_ALLOWLIST = []
 DEFAULT_WRITE_DENYLIST_DIRS = [
     "data/",
@@ -391,10 +388,10 @@ DEFAULT_WRITE_DENYLIST_FILES = [
 
 
 class ProtectedWritePolicy:
-    """Encapsulates allowlist/denylist rules + a hash gate for protected files.
+    """封装 allowlist/denylist 规则 + 受保护文件的哈希门。
 
-    All path checks operate on POSIX-style workspace-relative strings (the
-    same convention the tools/execution layer already uses).
+    所有路径检查都基于 POSIX 风格的“工作区相对字符串”（与 tools/execution
+    层既有的约定一致）。
     """
 
     def __init__(
@@ -411,10 +408,12 @@ class ProtectedWritePolicy:
 
     @staticmethod
     def _norm(rel: str) -> str:
+        # 把路径规范化为正斜杠、去空段的形式
         parts = [p for p in rel.replace("\\", "/").split("/") if p not in ("", ".")]
         return "/".join(parts)
 
     def _matches_prefix(self, rel: str, prefixes: list[str]) -> bool:
+        # 判断 rel 是否匹配任一前缀（目录或完整文件名）
         for prefix in prefixes:
             p = prefix.rstrip("/") + "/"
             if rel == prefix.rstrip("/") or rel.startswith(p):
@@ -424,26 +423,26 @@ class ProtectedWritePolicy:
         return False
 
     def allows_write(self, rel: str) -> tuple[bool, str]:
-        """Return (allowed, reason). A write is allowed if it is NOT denylisted
-        AND (allowlist empty OR it matches the allowlist)."""
+        """返回 (allowed, reason)。一次写入被允许的条件是：未被 denylist 拒绝，
+        且（allowlist 为空 或 命中 allowlist）。"""
         rel = self._norm(rel)
         if not rel:
             return False, "empty path"
-        # denylist files
+        # denylist 文件
         for f in self.denylist_files:
             if rel == f or rel.endswith("/" + f):
                 return False, f"denylisted file: {f}"
-        # denylist dirs (prefix match)
+        # denylist 目录（前缀匹配）
         if self._matches_prefix(rel, self.denylist_dirs):
             return False, f"denylisted directory: {rel}"
-        # allowlist: if non-empty, require a match
+        # allowlist：若非空则要求命中
         if self.allowlist:
             if not self._matches_prefix(rel, self.allowlist):
                 return False, f"not in write allowlist: {rel}"
         return True, "ok"
 
     def snapshot_hashes(self, workspace: Path) -> dict:
-        """Snapshot SHA-256 of configured protected files (relative to workspace)."""
+        """对配置中的受保护文件计算 SHA-256 快照（相对工作区）。"""
         snap: dict = {}
         if not self.protected_hashes:
             return snap
@@ -454,7 +453,7 @@ class ProtectedWritePolicy:
         return snap
 
     def assert_unchanged(self, workspace: Path) -> list[str]:
-        """Return a list of protected-file violation messages; empty if intact."""
+        """返回受保护文件被篡改的消息列表；空列表表示完好。"""
         violations = []
         current = self.snapshot_hashes(workspace)
         for rel, expected in self.protected_hashes.items():

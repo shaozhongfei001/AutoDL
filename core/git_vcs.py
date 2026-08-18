@@ -1,18 +1,17 @@
 """
-Git-backed transactional isolation & safe promotion (SDD ADR-002 / phase 3B).
+基于 Git 的事务隔离与安全晋级（SDD ADR-002 / 第 3B 阶段）。
 
-Implements the safe-promotion machinery that the base framework lacks:
+实现基础框架缺失的“安全晋级”机制：
 
-  * champion ref (protected) that only ever moves via fast-forward;
-  * isolated candidate worktrees so a code agent never mutates shared state;
-  * parent-SHA optimistic locking so a stale candidate cannot clobber a newer
-    champion;
-  * an artifact manifest (metrics + patch + checkpoint + sha256) that is
-    archived BEFORE any KEEP/DISCARD verdict is recorded;
-  * an append-only event ledger for replay / crash recovery.
+  * champion 引用（受保护）：只通过 fast-forward（快进）移动，绝不回退；
+  * 隔离的候选 worktree：代码智能体永远不能改写共享状态；
+  * 父 SHA 乐观锁：防止过期候选覆盖更新的 champion；
+  * 制品清单（指标 + 补丁 + 检查点 + sha256）：在任何 KEEP/DISCARD 判定
+    被记录之前先归档；
+  * 只追加的事件账本：用于回放 / 崩溃恢复。
 
-All git plumbing is invoked with explicit env so commits are attributed to the
-project owner (per repo contributor policy) and never touch global config.
+所有 git 底层命令都显式传入环境变量，使提交归属于项目所有者
+（遵循仓库贡献者策略），且绝不改动全局 git config。
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ from typing import Optional
 
 logger = logging.getLogger("autodl.gitvcs")
 
-# Contributor policy: commits must be authored by the project owner.
+# 贡献者策略：提交作者必须署名为项目所有者
 GIT_ENV = {
     **os.environ,
     "GIT_AUTHOR_NAME": "shaozhongfei001",
@@ -38,11 +37,11 @@ GIT_ENV = {
 
 
 class VcsError(RuntimeError):
-    """Raised when a git/vcs operation fails in a way that must not be silently
-    swallowed (e.g. a promotion conflict)."""
+    """当 git/vcs 操作以“不可静默吞掉”的方式失败时抛出（例如晋级冲突）。"""
 
 
 def _run(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+    # 统一封装 git 调用：指定仓库、捕获输出、注入作者环境变量
     try:
         return subprocess.run(
             ["git", "-C", str(repo), *args],
@@ -56,22 +55,21 @@ def _run(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProc
 
 
 def head_sha(repo: Path, ref: str = "HEAD") -> str:
-    """Return the full SHA of ``ref`` (resolves branch names)."""
+    """返回 ``ref`` 的完整 SHA（会解析分支名）。"""
     proc = _run(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
     return proc.stdout.strip()
 
 
 def is_descendant(repo: Path, ancestor: str, descendant: str) -> bool:
-    """True if ``descendant`` contains ``ancestor`` in its history (fast-forward possible)."""
-    # ``--is-ancestor`` exits 0 (ancestor) or 1 (not an ancestor); a non-ancestor
-    # must NOT raise, otherwise a legitimately non-fast-forward candidate would
-    # crash the loop instead of being rejected cleanly.
+    """若 ``descendant`` 的历史中包含 ``ancestor``（即可快进）则返回 True。"""
+    # --is-ancestor：是祖先返回 0，不是祖先返回 1；非祖先不能抛异常，
+    # 否则一个合法的“不可快进”候选会崩溃，而不是被干净地拒绝。
     proc = _run(repo, "merge-base", "--is-ancestor", ancestor, descendant, check=False)
     return proc.returncode == 0
 
 
 class GitExperimentVcs:
-    """Safe-promotion controller backed by a real git repository."""
+    """由真实 git 仓库支撑的安全晋级控制器。"""
 
     def __init__(
         self,
@@ -84,10 +82,10 @@ class GitExperimentVcs:
         self.candidate_ref_prefix = candidate_ref_prefix
         self.ensure_champion_ref()
 
-    # --- champion -----------------------------------------------------------
+    # --- champion 冠军分支 -----------------------------------------------------
 
     def ensure_champion_ref(self) -> str:
-        """Create the champion ref pointing at the current main HEAD if absent."""
+        """若 champion 引用不存在，则创建指向当前 main HEAD 的引用。"""
         try:
             return head_sha(self.repo, self.champion_ref)
         except VcsError:
@@ -95,11 +93,10 @@ class GitExperimentVcs:
             return head_sha(self.repo, self.champion_ref)
 
     def promote_to_champion(self, candidate_sha: str, expected_parent_sha: str) -> dict:
-        """Fast-forward promote ``candidate_sha`` onto the champion ref.
+        """把 ``candidate_sha`` 快进晋级到 champion 引用。
 
-        Optimistic lock: if the champion has moved past ``expected_parent_sha``
-        the promotion is rejected (``ok=False``) so the caller can replay and
-        retest. The champion ref only ever moves forward.
+        乐观锁：若 champion 已经移动到 ``expected_parent_sha`` 之后，则拒绝晋级
+        （``ok=False``），让调用方重新回放并重测。champion 引用只向前移动。
         """
         current = head_sha(self.repo, self.champion_ref)
         if current != expected_parent_sha:
@@ -124,29 +121,26 @@ class GitExperimentVcs:
             "candidate_sha": candidate_sha,
         }
 
-    # --- candidate worktree -------------------------------------------------
+    # --- 候选 worktree ---------------------------------------------------------
 
     def create_candidate_worktree(self, experiment_id: str, base_sha: str, parent: Path) -> Path:
-        """Create an isolated worktree for a candidate from ``base_sha``.
+        """基于 ``base_sha`` 为候选创建隔离的 worktree，返回其路径。
 
-        Returns the worktree path. The code agent may only write inside it.
-        Idempotent for resume: if the worktree/branch already exists it is
-        reused instead of being recreated.
+        代码智能体只能在 worktree 内部写入。支持断点续跑（幂等）：
+        若 worktree/分支已存在则复用，而非重建。
         """
         branch = f"{self.candidate_ref_prefix}-{experiment_id}"
         worktree = Path(parent) / f"candidate-{experiment_id}"
-        # A resume will already have registered this worktree (a ``.git`` file
-        # marker is written by git); return it as-is rather than re-adding.
+        # 续跑时 git 已注册过该 worktree（会写入 ``.git`` 标记文件），直接返回原路径
         if (worktree / ".git").exists():
             return worktree
-        # Ensure the parent directory exists so git can create the worktree.
+        # 确保父目录存在，git 才能创建 worktree
         worktree.parent.mkdir(parents=True, exist_ok=True)
         try:
             _run(self.repo, "worktree", "add", str(worktree), base_sha, "-b", branch)
         except VcsError as exc:
-            # Branch already exists (resume) -> attach the existing branch.
-            # ``--force`` bypasses the "path already exists" guard left over
-            # from a previous partial add.
+            # 分支已存在（续跑）-> 挂载已有分支；--force 可绕过上次半途
+            # 残留的 “path already exists” 保护。
             if "already exists" in str(exc):
                 _run(self.repo, "worktree", "add", "--force", str(worktree), branch)
             else:
@@ -154,7 +148,7 @@ class GitExperimentVcs:
         return worktree
 
     def commit_candidate(self, worktree: Path, message: str, files: list[str] | None = None) -> str:
-        """Commit the allowlisted candidate files inside the worktree. Returns SHA."""
+        """在 worktree 内提交 allowlist 允许的候选文件，返回提交 SHA。"""
         if files:
             _run(self.repo, "-C", str(worktree), "add", "-A", "--", *files)
         else:
@@ -163,13 +157,14 @@ class GitExperimentVcs:
         return self._worktree_head(worktree)
 
     def _worktree_head(self, worktree: Path) -> str:
+        # 读取 worktree 当前的 HEAD SHA
         proc = subprocess.run(
             ["git", "-C", str(worktree), "rev-parse", "HEAD"],
             capture_output=True, text=True, env=GIT_ENV, check=True,
         )
         return proc.stdout.strip()
 
-    # --- artifact manifest --------------------------------------------------
+    # --- 制品清单 --------------------------------------------------------------
 
     def build_artifact_manifest(
         self,
@@ -180,15 +175,15 @@ class GitExperimentVcs:
         checkpoint: Path | None = None,
         extra_files: list[Path] | None = None,
     ) -> dict:
-        """Snapshot candidate artifacts into an immutable manifest with SHA-256.
+        """把候选制品快照成带 SHA-256 的不可变清单。
 
-        The manifest must be archived BEFORE any verdict is recorded so a
-        DISCARDed candidate can still be reproduced later.
+        清单必须在任何 verdict（判定）被记录之前归档，这样即使候选被 DISCARD，
+        日后仍可被复现。
         """
         files: list[dict] = []
 
         def _snap(p, role: str) -> None:
-            # Coerce plain strings to Path so callers may pass either form.
+            # 允许调用方传入字符串或 Path，这里统一转成 Path
             p = Path(p) if isinstance(p, str) else p
             if p is None or not p.exists():
                 return
@@ -196,15 +191,14 @@ class GitExperimentVcs:
             try:
                 rel = str(p.relative_to(worktree))
             except ValueError:
-                # File lives outside the worktree (e.g. a central log dir):
-                # record the absolute path so it is still reproducible.
+                # 文件位于 worktree 之外（例如集中日志目录）：记录绝对路径以保证可复现
                 rel = str(p.resolve())
             files.append({"path": rel, "role": role, "sha256": digest})
 
         _snap(log_file, "log")
         _snap(checkpoint, "checkpoint")
 
-        # candidate.patch = diff against the champion baseline
+        # candidate.patch = 相对 champion 基线的 diff
         champion_sha = head_sha(self.repo, self.champion_ref)
         diff = _run(self.repo, "diff", champion_sha, self._worktree_head(worktree)).stdout
         if diff:
@@ -215,9 +209,9 @@ class GitExperimentVcs:
         for extra in (extra_files or []):
             _snap(extra, "artifact")
 
-        # SHA-256 over the whole manifest (excluding the self-referential
-        # digest) so any tamper of metrics, champion_sha, candidate_sha or the
-        # file snapshot is detectable — not just changes to ``files``.
+        # 对整个清单（排除自引用的 digest 字段）做 SHA-256，使得对 metrics、
+        # champion_sha、candidate_sha 或文件快照的任何篡改都可被检测——而不只是
+        # 改 ``files`` 字段。
         body = {
             "experiment_id": experiment_id,
             "champion_sha": champion_sha,

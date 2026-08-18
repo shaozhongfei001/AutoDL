@@ -16,12 +16,16 @@ from core.resilience import (
 
 
 class ClassifyRecoverableTests(unittest.TestCase):
+    """对 classify_recoverable / recoverable_candidates / summarize_recovery 恢复分类逻辑的测试。"""
+
     def test_terminal_status_not_recoverable(self):
+        # 已达终态（成功/失败/判决完成）的记录不可恢复。
         for status in ("completed", "success", "failed", "verdict_keep", "verdict_discard"):
             entry = {"status": status, "action": "experiment", "pid": 123, "log_file": "x.log"}
             self.assertFalse(classify_recoverable(entry)["recoverable"])
 
     def test_no_experiment_not_recoverable(self):
+        # 从未真正启动实验的记录（wait / 空记录）不可恢复。
         for entry in (
             {"status": "wait", "action": "wait"},
             {"status": "no_experiment", "action": "no_experiment"},
@@ -30,6 +34,7 @@ class ClassifyRecoverableTests(unittest.TestCase):
             self.assertFalse(classify_recoverable(entry)["recoverable"])
 
     def test_inflight_with_pid_recoverable(self):
+        # 运行中（running）且带有 pid 的记录可恢复，原因应包含 unfinished。
         entry = {"cycle": 3, "status": "running", "action": "experiment",
                  "pid": 99, "log_file": "run3.log"}
         verdict = classify_recoverable(entry)
@@ -37,10 +42,12 @@ class ClassifyRecoverableTests(unittest.TestCase):
         self.assertIn("unfinished", verdict["reason"])
 
     def test_launched_with_log_recoverable(self):
+        # 已启动（launched）且带日志的记录可恢复。
         entry = {"cycle": 4, "status": "launched", "action": "experiment", "log_file": "run4.log"}
         self.assertTrue(classify_recoverable(entry)["recoverable"])
 
     def test_crash_verdict_recoverable(self):
+        # 崩溃导致的判决记录可恢复，原因应提到 crash。
         entry = {"cycle": 5, "status": "verdict_crash", "action": "verdict:x",
                  "pid": 5, "log_file": "run5.log"}
         verdict = classify_recoverable(entry)
@@ -48,6 +55,7 @@ class ClassifyRecoverableTests(unittest.TestCase):
         self.assertIn("crash", verdict["reason"])
 
     def test_recoverable_candidates_filters(self):
+        # 从混合状态中只筛选出可恢复项（running），并附加恢复元信息。
         entries = [
             {"cycle": 1, "status": "completed", "action": "experiment"},
             {"cycle": 2, "status": "running", "action": "experiment", "pid": 1, "log_file": "a.log"},
@@ -59,6 +67,7 @@ class ClassifyRecoverableTests(unittest.TestCase):
         self.assertTrue(rec[0]["_recovery"]["recoverable"])
 
     def test_summarize_recovery(self):
+        # 汇总应能统计出可续跑周期、终态数与不适用项数。
         entries = [
             {"cycle": 1, "status": "completed", "action": "experiment"},
             {"cycle": 2, "status": "running", "action": "experiment", "pid": 1, "log_file": "a.log"},
@@ -72,7 +81,10 @@ class ClassifyRecoverableTests(unittest.TestCase):
 
 
 class RecoverVerdictHistoryTests(unittest.TestCase):
+    """对 recover_verdict_history 判决历史恢复逻辑的测试。"""
+
     def test_filters_verdict_entries_and_last(self):
+        # 仅保留判决类记录，并能找到最近一条以及所有已晋升的候选。
         entries = [
             {"cycle": 1, "action": "verdict:a1", "verdict": "DISCARD",
              "candidate_sha": "sha-1"},
@@ -86,12 +98,14 @@ class RecoverVerdictHistoryTests(unittest.TestCase):
         self.assertEqual(out["promoted_candidates"], ["sha-2"])
 
     def test_no_verdicts(self):
+        # 无任何判决记录时返回空列表与 None。
         out = recover_verdict_history([{"cycle": 1, "action": "wait"}])
         self.assertEqual(out["verdicts"], [])
         self.assertIsNone(out["last_verdict"])
         self.assertEqual(out["promoted_candidates"], [])
 
     def test_keep_only_promoted(self):
+        # 只有 KEEP（且晋升）的候选才被计入 promoted_candidates。
         entries = [
             {"action": "verdict:x", "verdict": "KEEP", "candidate_sha": "sx"},
             {"action": "verdict:y", "verdict": "DISCARD", "candidate_sha": "sy"},
@@ -101,6 +115,8 @@ class RecoverVerdictHistoryTests(unittest.TestCase):
 
 
 class CheckpointTests(unittest.TestCase):
+    """对检查点（Checkpoint）保存、断点续跑与损坏容错逻辑的测试。"""
+
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.workspace = Path(self.tempdir.name)
@@ -109,12 +125,14 @@ class CheckpointTests(unittest.TestCase):
         self.tempdir.cleanup()
 
     def test_no_checkpoint_means_start_from_one(self):
+        # 无检查点时，续跑周期从 1 开始。
         cp = Checkpoint(self.workspace)
         point = cp.resume_point()
         self.assertFalse(point["has_checkpoint"])
         self.assertEqual(point["next_cycle"], 1)
 
     def test_save_and_resume(self):
+        # 保存后能正确算出 next_cycle = last_cycle + 1，并读回上次状态。
         cp = Checkpoint(self.workspace)
         cp.save(last_cycle=7, last_state={"status": "running", "pid": 42})
         point = cp.resume_point()
@@ -128,10 +146,11 @@ class CheckpointTests(unittest.TestCase):
         cp.save(last_cycle=3, last_state={"metric": 0.9})
         raw = json.loads(cp.path.read_text())
         self.assertEqual(raw["last_cycle"], 3)
-        # no leftover temp file
+        # 不应残留临时文件
         self.assertFalse(cp.path.with_suffix(".json.tmp").exists())
 
     def test_save_accumulates_fields(self):
+        # 多次 save 应叠加字段，而不是互相覆盖丢失。
         cp = Checkpoint(self.workspace)
         cp.save(last_cycle=1)
         cp.save(last_state={"a": 1})
@@ -140,6 +159,7 @@ class CheckpointTests(unittest.TestCase):
         self.assertEqual(data["last_state"]["a"], 1)
 
     def test_corrupt_file_treated_as_no_checkpoint(self):
+        # 损坏的检查点文件应被当作「无检查点」处理（安全回退而非崩溃）。
         cp = Checkpoint(self.workspace)
         cp.path.write_text("{ not json")
         point = cp.resume_point()
@@ -148,7 +168,10 @@ class CheckpointTests(unittest.TestCase):
 
 
 class BackoffTests(unittest.TestCase):
+    """对指数退避（compute_backoff / next_retry_delay）逻辑的测试。"""
+
     def test_exponential_growth(self):
+        # 尝试次数越多次，等待时间呈指数增长。
         d0 = compute_backoff(0, base_seconds=30, max_seconds=3600, jitter=0)
         d1 = compute_backoff(1, base_seconds=30, max_seconds=3600, jitter=0)
         d2 = compute_backoff(2, base_seconds=30, max_seconds=3600, jitter=0)
@@ -157,10 +180,12 @@ class BackoffTests(unittest.TestCase):
         self.assertEqual(d2, 120.0)
 
     def test_capped_at_max(self):
+        # 等待时间有上限（max_seconds），避免无限增长。
         d = compute_backoff(100, base_seconds=30, max_seconds=600, jitter=0)
         self.assertEqual(d, 600.0)
 
     def test_jitter_within_bounds(self):
+        # 抖动（jitter）必须被限制在 ±10% 的允许区间内。
         rng = random.Random(1234)
         for attempt in range(10):
             d = compute_backoff(attempt, base_seconds=30, max_seconds=3600,

@@ -11,6 +11,8 @@ from core.ledger import (
 
 
 class ExperimentLedgerTests(unittest.TestCase):
+    """对实验账本（ExperimentLedger）记录的读出、summary、停滞检测等功能测试。"""
+
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.workspace = Path(self.tempdir.name)
@@ -20,6 +22,9 @@ class ExperimentLedgerTests(unittest.TestCase):
         self.tempdir.cleanup()
 
     def test_record_and_all_roundtrip(self):
+        # 写入两条记录后应能完整地读回（保持写入顺序）。
+        self.ledger.record(cycle=1, hypothesis="try lr=1e-3", status="launched",
+                            metrics={"acc": 0.5}, ts=1000.0)
         self.ledger.record(cycle=1, hypothesis="try lr=1e-3", status="launched",
                             metrics={"acc": 0.5}, ts=1000.0)
         self.ledger.record(cycle=2, hypothesis="try lr=1e-4", status="launched",
@@ -30,6 +35,7 @@ class ExperimentLedgerTests(unittest.TestCase):
         self.assertEqual(entries[1]["metrics"]["acc"], 0.6)
 
     def test_all_skips_malformed_lines(self):
+        # 读取时遇到无法解析为 JSON 的行应被跳过，不影响正常记录。
         self.ledger.record(cycle=1, metrics={"acc": 0.5}, ts=1.0)
         with open(self.ledger.path, "a") as fh:
             fh.write("not json\n")
@@ -37,6 +43,8 @@ class ExperimentLedgerTests(unittest.TestCase):
         self.assertEqual(len(self.ledger.all()), 1)
 
     def test_recent_and_summary(self):
+        # recent 返回最近 N 条，summary 生成紧凑文本摘要。
+        self.ledger.record(cycle=1, metrics={"acc": 0.5}, ts=1.0)
         for i in range(8):
             self.ledger.record(cycle=i, hypothesis=f"exp {i}", status="launched",
                                metrics={"acc": i / 10}, ts=float(i))
@@ -47,11 +55,13 @@ class ExperimentLedgerTests(unittest.TestCase):
         self.assertNotIn("exp 0", summary)
 
     def test_recent_zero_returns_empty(self):
+        # 取 0 条时返回空列表/空字符串。
         self.ledger.record(cycle=1, metrics={"acc": 0.5}, ts=1.0)
         self.assertEqual(self.ledger.recent(0), [])
         self.assertEqual(self.ledger.summary(0), "")
 
     def test_summary_tolerates_non_dict_metrics(self):
+        # summary 遇到非字典 metrics 时应容错而不抛异常。
         with open(self.ledger.path, "a") as fh:
             fh.write('{"cycle": 1, "metrics": ["a", "b"]}\n')
             fh.write('{"cycle": 2, "metrics": "acc=0.5"}\n')

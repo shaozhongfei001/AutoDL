@@ -1,16 +1,16 @@
 """
-Zero-cost safety helpers — pure functions over state + ledger, no GPU/network.
+零成本安全辅助函数 —— 仅对状态与账本（ledger）做纯函数计算，不涉及 GPU/网络。
 
-These keep a long-running agent honest without spending tokens:
+这些函数让长时间运行的智能体保持“诚实”，而不必额外消耗 token：
 
-- ``scan_violations`` surfaces bad states (repeated no-progress, stale
-  "running" state) as advisory strings the loop injects into the THINK context.
-- ``seconds_until_allowed`` is the proactive anti-burn rate limiter: given the
-  recent cycle-start timestamps, it returns how long to wait so the agent never
-  exceeds ``max_per_hour`` cycles (protecting budget when stuck in a loop).
+- ``scan_violations``：把异常状态（例如反复无进展、状态卡在 "running"）以建议
+  性字符串暴露出来，由主循环注入到 THINK 上下文中。
+- ``seconds_until_allowed``：主动式防烧钱限流器：根据最近的周期启动时间戳，
+  返回需要等待多久，从而保证智能体永远不会超过 ``max_per_hour`` 个周期
+  （在陷入循环时保护预算）。
 
-Everything here is deliberately pure and side-effect-free so it is unit-testable
-with crafted inputs — no nvidia-smi, no subprocess, no clock.
+这里的所有函数都刻意写成纯函数、无副作用，方便用构造好的输入做单元测试——
+不调用 nvidia-smi、不启动子进程、不读取系统时钟。
 """
 
 from __future__ import annotations
@@ -18,14 +18,13 @@ from __future__ import annotations
 import re
 
 
-# --- M5 convergence: hypothesis de-duplication -----------------------------
+# --- M5 收敛：假设去重 -------------------------------------------------------
 
 def normalize_hypothesis(hypothesis: str) -> str:
-    """Stable, collision-resistant key for a hypothesis / plan.
+    """为一条假设/计划生成稳定、抗碰撞的键。
 
-    Lowercases, collapses whitespace and strips punctuation so that two text
-    phrasings of the same idea map to the same key. ``None`` / empty maps to
-    ``""`` so callers always get a string.
+    统一转小写、合并空白、去除标点，使同一想法的两种不同表述映射到同一个键。
+    ``None`` / 空字符串映射为 ``""``，保证调用方永远拿到字符串。
     """
     if not hypothesis:
         return ""
@@ -39,13 +38,11 @@ def is_hypothesis_duplicate(
     attempted: list[str] | set[str],
     repeated_hypothesis_limit: int = 1,
 ) -> bool:
-    """Whether ``hypothesis`` has already been tried often enough to reject it.
+    """判断 ``hypothesis`` 是否已被尝试到应当被拒绝的程度。
 
-    ``attempted`` is the collection of previously-attempted hypotheses (already
-    normalized, or raw — both work). A hypothesis is a duplicate once its
-    normalized key has been seen at least ``repeated_hypothesis_limit`` times.
-    A limit of 1 (the contract default) means the second occurrence of the same
-    idea is already a duplicate; 0 disables de-duplication entirely.
+    ``attempted`` 是此前已尝试过的假设集合（已归一化或原始文本均可）。
+    当某假设的归一化键出现次数达到 ``repeated_hypothesis_limit`` 时即视为重复。
+    默认 limit=1（合同默认值）表示同一想法的第二次出现即为重复；limit=0 则完全禁用去重。
     """
     if repeated_hypothesis_limit <= 0:
         return False
@@ -64,13 +61,13 @@ def check_hypothesis_dedup(
     attempted: list[str] | set[str],
     repeated_hypothesis_limit: int = 1,
 ) -> dict:
-    """One-call M5 gate: should the loop run this hypothesis?
+    """M5 去重闸门的一键判断：主循环是否应该运行这条假设？
 
-    Returns a decision dict the loop can act on without extra bookkeeping:
+    返回一个决策字典，主循环无需额外记账即可直接使用：
 
-    - ``allowed``: True when the hypothesis is novel (or de-duplication is off).
-    - ``reason``: short advisory string for the THINK context when rejected.
-    - ``key``: the normalized key ("" when nothing to key on).
+    - ``allowed``：假设是全新的（或去重已关闭）时为 True。
+    - ``reason``：被拒绝时给 THINK 上下文的简短建议文案。
+    - ``key``：归一化键（无内容可键入时为 ""）。
     """
     if repeated_hypothesis_limit <= 0:
         return {"allowed": True, "reason": "", "key": normalize_hypothesis(hypothesis)}
@@ -88,7 +85,7 @@ def check_hypothesis_dedup(
     }
 
 
-# --- M5 convergence: no-progress escalation ---------------------------------
+# --- M5 收敛：无进展升级 -----------------------------------------------------
 
 def escalate_no_progress(
     no_progress_streak: int,
@@ -97,16 +94,16 @@ def escalate_no_progress(
     lower_target_threshold: int = 6,
     terminate_threshold: int = 10,
 ) -> dict:
-    """Return an escalation decision when the loop keeps making no progress.
+    """当主循环持续无进展时，返回升级决策。
 
-    Based only on ``no_progress_streak`` (pure, unit-testable). Returns one of:
+    仅依据 ``no_progress_streak``（纯值，可单元测试）。返回以下之一：
 
-    - ``level="normal"``: keep going as-is.
-    - ``level="widen"``: widen the search space (new region / different agent).
-    - ``level="lower_target"``: relax the goal / target metric for this cohort.
-    - ``level="terminate"``: stop unattended work and hand back to a human.
+    - ``level="normal"``：保持现状继续。
+    - ``level="widen"``：拓宽搜索空间（新区域 / 不同智能体）。
+    - ``level="lower_target"``：放宽本批次的目标 / 目标指标。
+    - ``level="terminate"``：停止无人值守工作，交还人工处理。
 
-    The decision is advisory; the loop decides how to translate it into actions.
+    该决策仅为建议，主循环自行决定如何转换为具体动作。
     """
     if no_progress_streak < widen_threshold:
         return {"level": "normal", "advice": "", "streak": int(no_progress_streak)}
@@ -147,7 +144,7 @@ def scan_violations(
     fail_threshold: int = 3,
     stale_state_hours: int = 6,
 ) -> list[str]:
-    """Return advisory violation messages for the current state."""
+    """返回当前状态的建议性违规信息列表。"""
     violations: list[str] = []
     state = state if isinstance(state, dict) else {}
 
@@ -179,24 +176,23 @@ def seconds_until_allowed(
     max_per_hour: int,
     window: int = 3600,
 ) -> float:
-    """How long to wait before starting another cycle, given recent starts.
+    """根据最近的周期启动时间，返回启动下一个周期前需要等待的秒数。
 
-    Returns 0.0 when rate limiting is disabled (``max_per_hour`` <= 0) or the
-    recent count is under budget. Otherwise returns the seconds until the
-    oldest in-window timestamp rolls past ``window``.
+    当限流被禁用（``max_per_hour`` <= 0）或近期次数未超预算时返回 0.0；
+    否则返回最早一条在窗口内的时间戳滚出 ``window`` 之前还需等待的秒数。
     """
     if not max_per_hour or max_per_hour <= 0:
         return 0.0
     recent = [t for t in (timestamps or []) if (now - t) < window]
     if len(recent) < max_per_hour:
         return 0.0
-    # Wait until enough of the oldest in-window starts roll off to bring the
-    # count back under max_per_hour — not just the single oldest one.
+    # 等待足够多的“最旧窗口内启动”滚出，使计数回到 max_per_hour 以下，
+    # 而不只是等最老的那一条
     recent_sorted = sorted(recent)
     target = recent_sorted[len(recent) - max_per_hour]
     return max(0.0, float(window) - (float(now) - float(target)))
 
 
 def prune_timestamps(timestamps: list[float], now: float, window: int = 3600) -> list[float]:
-    """Drop timestamps older than ``window`` seconds."""
+    """丢弃超过 ``window`` 秒的旧时间戳。"""
     return [t for t in (timestamps or []) if (now - t) < window]

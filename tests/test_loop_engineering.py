@@ -1,13 +1,12 @@
 """
-M2 machine-judgment tests (SDD 05 Loop Engineering).
+M2 机器判决测试（SDD 05 循环工程）。
 
-Covers the machine-authoritative KEEP/DISCARD/INCOMPARABLE verdict loop that
-runs BEFORE the LLM reflection:
-  * verdict correctness (improve -> KEEP, worse -> DISCARD, missing -> INCOMPARABLE)
-  * contract_status gating (a crashed/timed-out run is never KEEP)
-  * verdict persisted to the append-only ledger
-  * graceful degradation when VCS infra is absent (never crashes the loop)
-  * legacy fallback when no experiment contract is configured
+覆盖位于 LLM 反思之前运行的、以「机器为准」的 KEEP/DISCARD/INCOMPARABLE 判决循环：
+  * 判决正确性（提升 -> KEEP，变差 -> DISCARD，缺失 -> INCOMPARABLE）
+  * contract_status 门禁（崩溃/超时的运行绝不判为 KEEP）
+  * 判决写入追加式账本（append-only ledger）持久化
+  * 缺少 VCS 基础设施时的优雅降级（绝不因此让循环崩溃）
+  * 未配置实验契约时的旧式回退（legacy fallback）
 """
 
 import tempfile
@@ -20,6 +19,7 @@ from core.loop import ResearchLoop
 
 def _make_loop(tmp, primary="validation_accuracy", direction="maximize",
                min_effect_size=0.005, loop_engineering=True):
+    # 便捷构造一个开启循环工程配置的 ResearchLoop，参数化主指标、方向与效应量。
     project_dir = Path(tmp)
     (project_dir / "PROJECT_BRIEF.md").write_text("Train a classifier to acc > 0.8")
     config = {
@@ -43,38 +43,47 @@ def _make_loop(tmp, primary="validation_accuracy", direction="maximize",
 
 
 class GateVerdictByContractStatusTests(unittest.TestCase):
-    """Pure function tests for the contract_status gate."""
+    """对 contract_status 门禁的纯函数测试。"""
 
     def test_clean_status_passthrough_keep(self):
+        # 状态干净（SUCCESS）时 KEEP 原样放行。
         v = gate_verdict_by_contract_status({"verdict": "KEEP", "delta": 0.02}, "SUCCESS")
         self.assertEqual(v["verdict"], "KEEP")
 
     def test_empty_status_is_clean_legacy(self):
+        # 旧式（空状态）同样视为干净，放行 KEEP。
         v = gate_verdict_by_contract_status({"verdict": "KEEP", "delta": 0.02}, "")
         self.assertEqual(v["verdict"], "KEEP")
 
     def test_crash_never_keep(self):
+        # 崩溃的运行绝不 KEEP。
         v = gate_verdict_by_contract_status({"verdict": "KEEP", "delta": 0.02}, "CRASH")
         self.assertEqual(v["verdict"], "DISCARD")
 
     def test_timeout_never_keep(self):
+        # 超时的运行绝不 KEEP。
         v = gate_verdict_by_contract_status({"verdict": "KEEP", "delta": 0.02}, "TIMEOUT")
         self.assertEqual(v["verdict"], "DISCARD")
 
     def test_budget_exceeded_never_keep(self):
+        # 超预算的运行绝不 KEEP。
         v = gate_verdict_by_contract_status({"verdict": "KEEP", "delta": 0.02}, "BUDGET_EXCEEDED")
         self.assertEqual(v["verdict"], "DISCARD")
 
     def test_incomparable_passthrough_any_status(self):
+        # INCOMPARABLE 不受门禁影响，任意状态都原样放行。
         v = gate_verdict_by_contract_status({"verdict": "INCOMPARABLE", "delta": None}, "CRASH")
         self.assertEqual(v["verdict"], "INCOMPARABLE")
 
     def test_status_key_added(self):
+        # 门禁应在结果中附加 contract_status 字段。
         v = gate_verdict_by_contract_status({"verdict": "DISCARD", "delta": -0.1}, "SUCCESS")
         self.assertEqual(v["contract_status"], "SUCCESS")
 
 
 class MachineJudgeTests(unittest.TestCase):
+    """对 _machine_judge 机器判决逻辑的测试（KEEP/DISCARD/INCOMPARABLE + 门禁）。"""
+
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
 
@@ -88,6 +97,7 @@ class MachineJudgeTests(unittest.TestCase):
         )
 
     def test_keep_when_candidate_better(self):
+        # 候选（0.95）优于冠军（0.90）-> KEEP。
         loop = _make_loop(self.tempdir.name)
         self._seed_champion(loop, 0.90)
         machine = loop._machine_judge({
@@ -99,6 +109,7 @@ class MachineJudgeTests(unittest.TestCase):
         self.assertEqual(machine["verdict"], "KEEP")
 
     def test_discard_when_candidate_worse(self):
+        # 候选（0.85）差于冠军（0.90）-> DISCARD。
         loop = _make_loop(self.tempdir.name)
         self._seed_champion(loop, 0.90)
         machine = loop._machine_judge({
@@ -110,6 +121,7 @@ class MachineJudgeTests(unittest.TestCase):
         self.assertEqual(machine["verdict"], "DISCARD")
 
     def test_incomparable_when_metric_missing(self):
+        # 候选缺少主指标 -> 无法比较 -> INCOMPARABLE。
         loop = _make_loop(self.tempdir.name)
         self._seed_champion(loop, 0.90)
         machine = loop._machine_judge({
@@ -121,18 +133,20 @@ class MachineJudgeTests(unittest.TestCase):
         self.assertEqual(machine["verdict"], "INCOMPARABLE")
 
     def test_crash_gates_keep_to_discard(self):
+        # 即使候选更好（0.95），一旦实为 CRASH 就被门禁降为 DISCARD。
         loop = _make_loop(self.tempdir.name)
         self._seed_champion(loop, 0.90)
         machine = loop._machine_judge({
             "experiment_launched": True,
             "pid": 14,
             "final_metrics": {"validation_accuracy": 0.95},
-            "experiment_status": "completed",  # legacy status is "completed"
+            "experiment_status": "completed",  # 旧式 status 是 "completed"
             "contract_status": "CRASH",
         })
         self.assertEqual(machine["verdict"], "DISCARD")
 
     def test_verdict_written_to_ledger(self):
+        # 判决应被持久化到追加式账本中。
         loop = _make_loop(self.tempdir.name)
         self._seed_champion(loop, 0.90)
         loop._machine_judge({
@@ -146,6 +160,7 @@ class MachineJudgeTests(unittest.TestCase):
         self.assertEqual(verdict_entries[0]["verdict"], "KEEP")
 
     def test_verdict_written_to_state(self):
+        # 判决也应写入循环状态，便于后续 THINK 上下文读取。
         loop = _make_loop(self.tempdir.name)
         self._seed_champion(loop, 0.90)
         loop._machine_judge({
@@ -159,8 +174,7 @@ class MachineJudgeTests(unittest.TestCase):
         self.assertEqual(state.get("last_verdict", {}).get("verdict"), "KEEP")
 
     def test_archives_manifest_without_vcs_no_crash(self):
-        # No VCS controller configured -> ledger-manifest archive, still returns
-        # a verdict and never raises.
+        # 未配置 VCS controller 时，降级为账本-清单归档，仍返回判决且绝不抛异常。
         loop = _make_loop(self.tempdir.name)
         self._seed_champion(loop, 0.90)
         machine = loop._machine_judge({
@@ -171,12 +185,12 @@ class MachineJudgeTests(unittest.TestCase):
             "experiment_status": "completed",
         })
         self.assertEqual(machine["verdict"], "KEEP")
-        # a manifest artifact should have been persisted under the workspace
+        # 应有一个制品清单被持久化在工作区目录下
         artifacts = list((loop.workspace / "artifacts").glob("*"))
         self.assertGreater(len(artifacts), 0)
 
     def test_legacy_path_when_m2_disabled(self):
-        # No primary metric in the experiment contract -> M2 disabled -> None.
+        # 实验契约里没有主指标 -> M2 关闭 -> 返回 None。
         loop = _make_loop(self.tempdir.name, primary="", loop_engineering=False)
         self.assertFalse(loop._machine_judge_enabled)
         self.assertIsNone(loop._machine_judge({
@@ -185,14 +199,14 @@ class MachineJudgeTests(unittest.TestCase):
         }))
 
     def test_no_experiment_launched_returns_none(self):
+        # 未真正启动实验时不应做机器判决，返回 None。
         loop = _make_loop(self.tempdir.name)
         self.assertTrue(loop._machine_judge_enabled)
         self.assertIsNone(loop._machine_judge({"experiment_launched": False}))
 
     def test_machine_judge_is_authoritative_in_reflect(self):
-        # The reflect result's decision must carry the machine verdict and the
-        # LLM cannot override it. We stub dispatch_leader to return an LLM
-        # opinion that contradicts the machine verdict.
+        # reflect 结果必须携带机器判决，且 LLM 无法推翻它。我们桩掉 dispatch_leader，
+        # 让它返回一个与机器判决相矛盾的 LLM 意见。
         loop = _make_loop(self.tempdir.name)
         self._seed_champion(loop, 0.90)
         machine = loop._machine_judge({
@@ -203,21 +217,21 @@ class MachineJudgeTests(unittest.TestCase):
         })
         self.assertEqual(machine["verdict"], "KEEP")
 
-        # Stub the LLM so no real API call is made. It returns a contradictory
-        # opinion ("DISCARD") that the machine KEEP must override.
+        # 桩掉 LLM 以避免真实 API 调用：它返回矛盾的 "DISCARD" 意见，
+        # 但机器的 KEEP 必须覆盖它。
         loop.dispatcher.dispatch_leader = lambda task, context=None: {
             "milestone": "candidate looked worse",
             "decision": "DISCARD",
         }
         reflect = loop._reflect({}, machine_judgment=machine)
         self.assertTrue(reflect.get("decision", "").startswith("[machine:KEEP]"), reflect.get("decision"))
-        # LLM narrative is preserved as an explanation, never the decision.
+        # LLM 的叙述仅作为说明保留，绝不作为判决本身。
         self.assertEqual(reflect.get("narrative"), "candidate looked worse")
 
 
 class VerdictHistoryEnrichmentTests(unittest.TestCase):
-    """M5/M6 integration: verdict history is rebuilt from the ledger into THINK
-    context so the leader can dedup hypotheses and resume from the last verdict."""
+    """M5/M6 集成测试：从账本重建判决历史进入 THINK 上下文，
+    使领导者能够去重假设并从最近一次判决续跑。"""
 
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
@@ -233,6 +247,7 @@ class VerdictHistoryEnrichmentTests(unittest.TestCase):
         )
 
     def test_enrich_context_rebuilds_verdict_history_from_ledger(self):
+        # 计数器应从账本重建出 last_verdict / verdict_history / promoted_candidates。
         loop = _make_loop(self.tempdir.name)
         self._seed_champion(loop, 0.90)
         machine = loop._machine_judge({
@@ -249,12 +264,12 @@ class VerdictHistoryEnrichmentTests(unittest.TestCase):
         self.assertEqual(context["last_verdict"]["verdict"], "KEEP")
         self.assertIn("verdict_history", context)
         self.assertEqual(len(context["verdict_history"]), 1)
-        # KEEP candidate is surfaced so M5 can avoid re-proposing it.
+        # 已晋升的 KEEP 候选被暴露出来，M5 据此避免重复提出它。
         self.assertIn("promoted_candidates", context)
         self.assertEqual(len(context["promoted_candidates"]), 1)
 
     def test_no_context_fields_when_no_verdicts(self):
-        # No verdict recorded yet -> context stays quiet (nothing to dedup).
+        # 尚无判决 -> 上下文保持安静（没有可去重的东西）。
         loop = _make_loop(self.tempdir.name)
         context = {}
         loop._enrich_context(context)
@@ -264,9 +279,10 @@ class VerdictHistoryEnrichmentTests(unittest.TestCase):
 
 
 class ConvergenceTests(unittest.TestCase):
-    """P2: M5 convergence — hypothesis de-dup + no-progress escalation."""
+    """P2: M5 收敛 — 假设去重 + 无进展升级。"""
 
     def _make_dedup_loop(self, tmp, dedup_enabled=True):
+        # 构造一个默认启用去重的循环配置，用于收敛性测试。
         project_dir = Path(tmp)
         (project_dir / "PROJECT_BRIEF.md").write_text("Train a classifier")
         config = {
@@ -292,6 +308,7 @@ class ConvergenceTests(unittest.TestCase):
         return ResearchLoop(config=config, project_dir=str(project_dir))
 
     def test_dedup_blocks_repeated_hypothesis(self):
+        # 相同假设首次放行，重复出现则被阻断为 wait，并打上去重标记。
         with tempfile.TemporaryDirectory() as tmp:
             loop = self._make_dedup_loop(tmp)
             r1 = loop._apply_hypothesis_dedup({"action": "experiment", "hypothesis": "Try more conv layers"})
@@ -301,18 +318,21 @@ class ConvergenceTests(unittest.TestCase):
             self.assertTrue(r2.get("hypothesis_dedup_blocked"))
 
     def test_dedup_disabled_is_noop(self):
+        # 去重被禁用时不产生任何阻断。
         with tempfile.TemporaryDirectory() as tmp:
             loop = self._make_dedup_loop(tmp, dedup_enabled=False)
             r = loop._apply_hypothesis_dedup({"action": "experiment", "hypothesis": "same"})
             self.assertNotEqual(r.get("action"), "wait")
 
     def test_dedup_no_hypothesis_noop(self):
+        # 无 hypothesis 时（如 report 动作）去重逻辑不介入。
         with tempfile.TemporaryDirectory() as tmp:
             loop = self._make_dedup_loop(tmp)
             r = loop._apply_hypothesis_dedup({"action": "report"})
             self.assertEqual(r.get("action"), "report")
 
     def test_no_progress_escalation_in_fallback(self):
+        # 无进展连击达到 widen 阈值 -> 回退触发转换为「扩大搜索空间」。
         with tempfile.TemporaryDirectory() as tmp:
             loop = self._make_dedup_loop(tmp)
             loop._no_progress_streak = 5  # >= widen_threshold(3) -> widen
@@ -324,6 +344,7 @@ class ConvergenceTests(unittest.TestCase):
             self.assertTrue(out.get("no_progress_advice"))
 
     def test_no_progress_escalation_terminate(self):
+        # 无进展连击达到 terminate 阈值 -> 升级为终止建议。
         with tempfile.TemporaryDirectory() as tmp:
             loop = self._make_dedup_loop(tmp)
             loop._no_progress_streak = 10  # >= terminate_threshold(10)
@@ -333,6 +354,7 @@ class ConvergenceTests(unittest.TestCase):
             self.assertEqual(out.get("no_progress_escalation"), "terminate")
 
     def test_escalate_no_progress_levels(self):
+        # 校验无进展升级的四个级别映射：normal/widen/lower_target/terminate。
         from core.safety import escalate_no_progress
         self.assertEqual(escalate_no_progress(1)["level"], "normal")
         self.assertEqual(escalate_no_progress(4)["level"], "widen")
@@ -341,7 +363,7 @@ class ConvergenceTests(unittest.TestCase):
 
 
 class ResumeDedupStateTests(unittest.TestCase):
-    """P5: on restart, attempted-hypothesis state resumes from the ledger."""
+    """P5: 重启时，已尝试假设状态应从账本恢复。"""
 
     def _make_dedup_loop(self, tmp, ledger_entries=None, dedup_enabled=True):
         from core.ledger import ExperimentLedger
@@ -373,21 +395,24 @@ class ResumeDedupStateTests(unittest.TestCase):
         return ResearchLoop(config=config, project_dir=str(project_dir))
 
     def test_resume_loads_promoted_candidates_into_attempted(self):
+        # 重启时，曾晋升的候选 SHA 应被归一化为已尝试假设。
         with tempfile.TemporaryDirectory() as tmp:
             entries = [
                 {"cycle": 0, "action": "verdict:e1", "verdict": "KEEP", "candidate_sha": "abc123",
                  "promotion_status": "PROMOTED", "metrics": {"validation_accuracy": 0.9}},
             ]
             loop = self._make_dedup_loop(tmp, ledger_entries=entries)
-            # promoted candidate SHA is normalized into attempted hypotheses
+            # 已晋升候选的 SHA 被归一化进已尝试假设集合
             self.assertGreater(len(loop._attempted_hypotheses), 0)
 
     def test_resume_with_empty_ledger_noop(self):
+        # 空账本时不恢复任何已尝试假设。
         with tempfile.TemporaryDirectory() as tmp:
-            loop = self._make_dedup_loop(tmp)  # empty ledger
+            loop = self._make_dedup_loop(tmp)  # 空账本
             self.assertEqual(loop._attempted_hypotheses, set())
 
     def test_resume_with_dedup_disabled_noop(self):
+        # 去重被禁用时不恢复已尝试假设。
         with tempfile.TemporaryDirectory() as tmp:
             entries = [
                 {"cycle": 0, "action": "verdict:e1", "verdict": "KEEP", "candidate_sha": "abc123"},
@@ -396,18 +421,19 @@ class ResumeDedupStateTests(unittest.TestCase):
             self.assertEqual(loop._attempted_hypotheses, set())
 
     def test_corrupt_state_does_not_crash(self):
+        # 损坏的 state.json 不应导致构造循环时崩溃。
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = Path(tmp)
             ws = project_dir / "workspace"
             ws.mkdir(parents=True, exist_ok=True)
             (ws / "state.json").write_text("{corrupt json")
-            # constructing the loop must not crash despite corrupt state
+            # 即使状态损坏，构造循环也不得崩溃
             loop = self._make_dedup_loop(tmp)
             self.assertIsNotNone(loop)
 
 
 class ConvergenceTerminationTests(unittest.TestCase):
-    """I1 (P0): unattended loop converges after N rounds with no KEEP."""
+    """I1 (P0): 无人值守循环在 N 轮无 KEEP 后自动收敛。"""
 
     def _make_loop(self, tmp, max_no_improvement_rounds=3, max_cycles=-1):
         project_dir = Path(tmp)

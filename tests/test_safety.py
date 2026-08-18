@@ -12,17 +12,21 @@ from core.safety import (
 
 
 class ScanViolationsTests(unittest.TestCase):
+    """对安全违规扫描（scan_violations）的测试：连续无进展与状态陈旧两类。"""
+
     def test_high_fail_count_flagged(self):
+        # 连续失败超过阈值 -> 标记「consecutive no-progress」违规。
         viols = scan_violations({}, fail_count=3, now=1000.0, fail_threshold=3)
         self.assertEqual(len(viols), 1)
         self.assertIn("consecutive no-progress", viols[0])
 
     def test_below_threshold_not_flagged(self):
+        # 失败数低于阈值不应被标记。
         self.assertEqual(scan_violations({}, fail_count=2, now=1000.0, fail_threshold=3), [])
 
     def test_stale_running_state_flagged(self):
         state = {"status": "running", "updated_at": 0.0}
-        now = 7 * 3600  # 7 hours later
+        now = 7 * 3600  # 7 小时后
         viols = scan_violations(state, fail_count=0, now=now, stale_state_hours=6)
         self.assertEqual(len(viols), 1)
         self.assertIn("running", viols[0])
@@ -43,7 +47,10 @@ class ScanViolationsTests(unittest.TestCase):
 
 
 class RateLimitTests(unittest.TestCase):
+    """对限流（seconds_until_allowed / prune_timestamps）的测试。"""
+
     def test_disabled_returns_zero(self):
+        # max_per_hour=0 表示限流关闭，应立即放行（等待 0 秒）。
         self.assertEqual(seconds_until_allowed([1, 2, 3], now=100, max_per_hour=0), 0.0)
 
     def test_under_budget_returns_zero(self):
@@ -51,7 +58,7 @@ class RateLimitTests(unittest.TestCase):
         self.assertEqual(seconds_until_allowed(ts, now=300.0, max_per_hour=6), 0.0)
 
     def test_over_budget_waits_until_oldest_rolls_off(self):
-        # 6 cycles all within the last hour, oldest at now-3000s -> wait 600s.
+        # 6 次调用都发生在上一个小时内，最旧的一次在 now-3000s -> 需等待 600s。
         now = 10000.0
         ts = [now - 3000, now - 2500, now - 2000, now - 1500, now - 1000, now - 500]
         wait = seconds_until_allowed(ts, now=now, max_per_hour=6, window=3600)
@@ -59,17 +66,17 @@ class RateLimitTests(unittest.TestCase):
 
     def test_over_budget_with_excess_waits_enough_to_get_under_cap(self):
         now = 10000.0
-        # 8 in-window starts, cap 6: must wait until the count drops below 6.
+        # 窗口内共 8 次起始、上限 6：必须等到计数降到 6 以下才能放行。
         ts = [now - 3500, now - 3400, now - 3300, now - 1000, now - 800, now - 600, now - 400, now - 200]
         wait = seconds_until_allowed(ts, now=now, max_per_hour=6, window=3600)
-        # After sleeping `wait`, recompute the in-window count; it must be < 6.
+        # 等待 `wait` 后重新计算窗口内计数，它必须小于 6。
         future = now + wait
         remaining = [t for t in ts if (future - t) < 3600]
         self.assertLess(len(remaining), 6)
 
     def test_old_timestamps_do_not_count(self):
         now = 10000.0
-        ts = [now - 5000, now - 4000]  # both older than 1h window
+        ts = [now - 5000, now - 4000]  # 两者都早于 1 小时窗口
         self.assertEqual(seconds_until_allowed(ts, now=now, max_per_hour=1, window=3600), 0.0)
 
     def test_prune_timestamps(self):
@@ -79,7 +86,10 @@ class RateLimitTests(unittest.TestCase):
 
 
 class HypothesisDedupTests(unittest.TestCase):
+    """对假设去重（normalize / is_hypothesis_duplicate / check_hypothesis_dedup）的测试。"""
+
     def test_normalize_hypothesis_stable(self):
+        # 归一化应忽略大小写、多余空白与标点，保证等价输入得到一致结果。
         self.assertEqual(
             normalize_hypothesis("  Try LR 1e-3,  batch 32! "),
             normalize_hypothesis("try lr 1e-3 batch 32"),
@@ -117,22 +127,28 @@ class HypothesisDedupTests(unittest.TestCase):
 
 
 class NoProgressEscalationTests(unittest.TestCase):
+    """无进展升级（escalate_no_progress）分级处置逻辑测试。"""
+
     def test_normal_below_threshold(self):
+        # 连续无进展轮数低于阈值 -> 处于 normal（正常）级别。
         self.assertEqual(escalate_no_progress(0)["level"], "normal")
         self.assertEqual(escalate_no_progress(2, widen_threshold=3)["level"], "normal")
 
     def test_widen_at_low_streak(self):
+        # 中等连续轮数 -> 升级为「扩大搜索空间」。
         decision = escalate_no_progress(4, widen_threshold=3,
                                         lower_target_threshold=6, terminate_threshold=10)
         self.assertEqual(decision["level"], "widen")
         self.assertIn("widen", decision["advice"].lower())
 
     def test_lower_target_at_mid_streak(self):
+        # 更高连续轮数 -> 升级为「降低目标」。
         decision = escalate_no_progress(7, widen_threshold=3,
                                         lower_target_threshold=6, terminate_threshold=10)
         self.assertEqual(decision["level"], "lower_target")
 
     def test_terminate_at_high_streak(self):
+        # 极高连续轮数 -> 强烈建议终止。
         decision = escalate_no_progress(11, widen_threshold=3,
                                         lower_target_threshold=6, terminate_threshold=10)
         self.assertEqual(decision["level"], "terminate")

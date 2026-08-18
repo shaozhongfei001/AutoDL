@@ -1,8 +1,8 @@
 """
-AutoResearcher GPU Detection and Management
+AutoResearcher GPU 检测与管理
 
-Basic GPU utilities for detecting available GPUs, checking status,
-and managing GPU allocation for experiments.
+提供一组基础 GPU 工具：检测可用 GPU、查询 GPU 状态、判断某张 GPU 是否空闲、
+为实验挑选可用的 GPU。
 """
 
 import subprocess
@@ -14,10 +14,10 @@ logger = logging.getLogger("autoresearcher.gpu")
 
 
 def detect_gpus() -> list[int]:
-    """Detect all available GPUs via nvidia-smi.
+    """通过 ``nvidia-smi -L`` 检测所有可用 GPU。
 
-    Returns:
-        List of GPU indices, e.g. [0, 1, 2, 3]
+    返回：
+        GPU 索引列表，例如 [0, 1, 2, 3]；检测失败则返回空列表。
     """
     try:
         result = subprocess.run(
@@ -30,16 +30,16 @@ def detect_gpus() -> list[int]:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
-    logger.warning("nvidia-smi not found or failed. No GPUs detected.")
+    logger.warning("nvidia-smi 未找到或执行失败，未检测到 GPU。")
     return []
 
 
 def gpu_status() -> list[dict]:
-    """Get detailed GPU status.
+    """获取 GPU 的详细信息。
 
-    Returns:
-        List of dicts with gpu_id, name, memory_used, memory_total,
-        utilization, temperature, processes.
+    返回：
+        字典列表，每个含 gpu_id、name、memory_used、memory_total、
+        utilization、temperature。
     """
     try:
         result = subprocess.run(
@@ -71,14 +71,14 @@ def gpu_status() -> list[dict]:
 
 
 def is_gpu_available(gpu_id: int, memory_threshold_mb: int = 1000) -> bool:
-    """Check if a GPU is available (low memory usage).
+    """判断某张 GPU 是否空闲（显存占用低于阈值）。
 
-    Args:
-        gpu_id: GPU index to check
-        memory_threshold_mb: Consider available if used memory below this
+    参数：
+        gpu_id: 要检查的 GPU 索引
+        memory_threshold_mb: 已用显存低于此值才视为空闲
 
-    Returns:
-        True if GPU appears free
+    返回：
+        该 GPU 看起来空闲则为 True
     """
     statuses = gpu_status()
     for gpu in statuses:
@@ -88,13 +88,13 @@ def is_gpu_available(gpu_id: int, memory_threshold_mb: int = 1000) -> bool:
 
 
 def get_usable_gpus(reserve_last: bool = True) -> list[int]:
-    """Get list of GPUs usable for experiments.
+    """获取可用于实验的 GPU 列表。
 
-    Args:
-        reserve_last: If True, exclude the last GPU (for keep-alive)
+    参数：
+        reserve_last: 若为 True，则排除最后一张 GPU（用于保活），见 gpu/keeper.py
 
-    Returns:
-        List of GPU indices available for experiments
+    返回：
+        可用于实验的 GPU 索引列表
     """
     gpus = detect_gpus()
     if not gpus:
@@ -105,24 +105,24 @@ def get_usable_gpus(reserve_last: bool = True) -> list[int]:
 
 
 def get_free_gpus(reserve_last: bool = True, memory_threshold_mb: int = 1000) -> list[int]:
-    """Get GPUs that are both usable and currently free.
+    """获取既可用、当前又空闲的 GPU 列表。
 
-    Args:
-        reserve_last: Exclude last GPU
-        memory_threshold_mb: Memory threshold for "free"
+    参数：
+        reserve_last: 排除最后一张 GPU
+        memory_threshold_mb: “空闲” 的显存阈值
 
-    Returns:
-        List of free GPU indices
+    返回：
+        空闲 GPU 索引列表
     """
     usable = get_usable_gpus(reserve_last=reserve_last)
     return [g for g in usable if is_gpu_available(g, memory_threshold_mb)]
 
 
 def print_gpu_summary():
-    """Print a human-readable GPU summary."""
+    """打印一份人类可读的 GPU 概览。"""
     statuses = gpu_status()
     if not statuses:
-        print("No GPUs detected.")
+        print("未检测到 GPU。")
         return
 
     print(f"{'GPU':>4} {'Name':<25} {'Memory':>15} {'Util':>6} {'Temp':>6}")
@@ -136,7 +136,7 @@ def print_gpu_summary():
 
     usable = get_usable_gpus()
     free = get_free_gpus()
-    print(f"\nUsable: {usable} | Free: {free}")
+    print(f"\n可用: {usable} | 空闲: {free}")
 
 
 if __name__ == "__main__":

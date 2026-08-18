@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Demo training script: simulates a short training run that prints metrics.
+"""演示训练脚本：模拟一段短时训练并打印指标。
 
-Reuses the light_demo objective f(lr) = (lr - 0.25)^2 + 0.01. Sweeps a small
-grid of learning rates and prints a `metric=...` line periodically so the
-second-by-second watcher has something observable. Pure stdlib, CPU-only.
+复用 light_demo 的目标函数 f(lr) = (lr - 0.25)^2 + 0.01。对一组较小的学习率做
+网格扫描，并周期性地打印 ``metric=...`` 行，让逐秒观察的 watcher 有可见的输出。
+纯标准库、仅 CPU。
 """
 import argparse
 import math
@@ -12,6 +12,7 @@ import time
 
 
 def objective(lr: float) -> float:
+    # 目标函数：以 0.25 为最小值点
     return (lr - 0.25) ** 2 + 0.01
 
 
@@ -22,10 +23,10 @@ def main() -> int:
     parser.add_argument("--delay", type=float, default=1.0)
     args = parser.parse_args()
 
-    # "training" loop: each step nudges lr toward the optimum and prints a metric.
+    # “训练”循环：每一步把 lr 朝真实最优点（0.25）推动，并打印一条指标。
     lr = args.lr
     for step in range(1, args.steps + 1):
-        # Simple gradient-like update toward the true minimum (0.25).
+        # 类似梯度的更新，朝真实最小值（0.25）靠近
         lr = lr - 0.05 * 2.0 * (lr - 0.25)
         metric = objective(lr)
         print(f"step {step}/{args.steps} | lr={lr:.6f} | metric={metric:.6f}", flush=True)
