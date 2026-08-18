@@ -6,11 +6,15 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+# 允许出现在技能 SKILL.md 前（YAML frontmatter）中的键白名单，与 Codex 技能规范保持一致。
 ALLOWED_FRONTMATTER_KEYS = {"name", "description", "license", "allowed-tools", "metadata"}
 
 
 class SkillValidationTests(unittest.TestCase):
+    """对仓库内 skills/ 目录下所有技能元信息做一致性校验。"""
+
     def test_all_repo_skills_use_codex_compatible_frontmatter(self):
+        # 遍历每个技能子目录，逐一检查 SKILL.md 是否存在、frontmatter 是否合法且键是否在白名单内。
         failures = []
         skills_dir = REPO_ROOT / "skills"
 

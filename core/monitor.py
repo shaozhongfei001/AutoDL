@@ -1,15 +1,15 @@
 """
-AutoResearcher Experiment Monitor
+AutoResearcher 实验监控器
 
-The key innovation: ZERO LLM calls during experiment training.
+核心创新点：实验训练期间**零 LLM 调用**。
 
-While your model trains (hours/days), the monitor only does:
-- Process alive check
-- Log file tail read
-- GPU utilization check
+当模型训练（数小时/数天）时，监控器只做三件事：
+- 进程存活检查
+- 读取日志尾部
+- GPU 利用率检查
 
-This means running AutoResearcher 24/7 costs the same as running it
-only during the THINK and REFLECT phases.
+这意味着让 AutoResearcher 7×24 小时运行的成本，与只在 THINK（思考）和
+REFLECT（反思）阶段运行的成本完全相同。
 """
 
 import json
@@ -24,11 +24,10 @@ logger = logging.getLogger("autodl.monitor")
 
 
 class ExperimentMonitor:
-    """Zero-LLM experiment monitoring.
+    """零 LLM 实验监控。
 
-    Design principle: During training, the agent is effectively "sleeping"
-    at zero cost. It only wakes up (calls LLM) when training completes
-    and results need analysis.
+    设计原则：训练期间，智能体实质上是在“零成本睡眠”，只有当训练完成、
+    需要分析结果时才被唤醒（发起 LLM 调用）。
     """
 
     def __init__(
@@ -38,17 +37,16 @@ class ExperimentMonitor:
         backend: Optional[ExecutionBackend] = None,
         budget: Optional[dict] = None,
     ):
-        self.poll_interval = poll_interval  # seconds between checks
+        self.poll_interval = poll_interval  # 两次检查之间的秒数
         self.zero_llm = zero_llm
         self.backend = backend or LocalExecutionBackend(".")
         self._active_experiments: dict[int, dict] = {}
-        # A contract: optional budget (mode/limit/hard_wall_clock_limit/enforced).
-        # Legacy (no budget) keeps the old unbounded-wait behavior.
+        # 契约：可选预算（mode/limit/hard_wall_clock_limit/enforced）。
+        # 旧模式（无预算）保留原先的无限制等待行为。
         self.budget = budget or {}
-        # In-run early stopping (train-level): parse per-epoch validation
-        # metrics from the live log and terminate the run early when the model
-        # has stopped improving (plateau), so GPU time is not wasted. Disabled
-        # by default (legacy behavior). Config lives under the budget block:
+        # 训练内早停（train 级）：从实时日志解析逐轮验证指标，当模型停止提升
+        # （进入平台期）时提前终止运行，避免浪费 GPU 时间。默认关闭（旧行为）。
+        # 配置位于 budget 块下：
         #   budget.early_stop.{enabled, patience, improvement_tol, min_epochs, metric}
         es = (self.budget or {}).get("early_stop") or {}
         self.early_stop_enabled = bool(es.get("enabled", False))
@@ -56,22 +54,21 @@ class ExperimentMonitor:
         self.early_stop_tol = float(es.get("improvement_tol", 1e-4))
         self.early_stop_min_epochs = int(es.get("min_epochs", 5))
         self.early_stop_metric = str(es.get("metric", "validation_accuracy"))
-        # Direction of the early-stop metric: "higher_better" (accuracy) or
-        # "lower_better" (loss). Dictates how "improvement" and "plateau" are
-        # judged. Default higher_better preserves legacy behavior.
+        # 早停指标的方向："higher_better"（准确率）或 "lower_better"（loss）。
+        # 决定如何判断“提升”与“平台期”。默认 higher_better 保留旧行为。
         self.early_stop_direction = str(es.get("direction", "higher_better"))
         self._early_stopped = False
 
     def _extract_epoch_metrics(self, log_lines: list[str], metric: str) -> list[float]:
-        """Extract the per-epoch value sequence of ``metric`` from the live log.
+        """从实时日志提取 ``metric`` 的逐轮数值序列。
 
-        Handles both the structured ``RESULT {...}`` per-epoch snapshot and the
-        legacy ``key=value`` / ``epoch N ... metric=...`` text forms. Returns a
-        chronological list of floats (earliest first). Empty when none found.
+        同时兼容结构化的 ``RESULT {...}`` 逐轮快照与旧式 ``key=value`` /
+        ``epoch N ... metric=...`` 文本形式。返回按时间排序的 float 列表
+        （最早在前）；找不到时返回空列表。
         """
         import re
         values: list[float] = []
-        # Structured RESULT snapshots may carry the metric per epoch.
+        # 结构化 RESULT 快照可能逐轮携带该指标
         for line in log_lines:
             m = re.search(r"RESULT\s+(\{.*\})", line)
             if not m:
@@ -87,7 +84,7 @@ class ExperimentMonitor:
                     pass
         if values:
             return values
-        # Legacy regex: `metric=0.98`, `metric: 0.98`, `metric 0.98`.
+        # 旧式正则匹配：`metric=0.98`、`metric: 0.98`、`metric 0.98`
         pattern = re.compile(
             r"(?:{metric}\s*[:=]\s*([0-9.]+))|(?:^.*\b{metric}\b[^\d]*([0-9.]+))".format(
                 metric=re.escape(metric)
@@ -105,12 +102,11 @@ class ExperimentMonitor:
         return values
 
     def _check_in_run_early_stop(self, pid: int, log_lines: list[str]) -> bool:
-        """In-run early stopping: if validation has plateaued for ``patience``
-        consecutive epochs (beyond a tolerance), terminate the run to save GPU.
+        """训练内早停：若验证指标在连续 ``patience`` 个 epoch 内进入平台期
+        （改进幅度未超容差），则终止运行以节省 GPU。
 
-        Returns True when the run was early-stopped. Never fires before
-        ``min_epochs`` observations (so the early volatile phase is respected)
-        and only considers the metric named by ``early_stop_metric``.
+        返回 True 表示已触发早停。在积累到 ``min_epochs`` 个观测之前绝不触发
+        （以尊重早期波动阶段），且仅考虑 ``early_stop_metric`` 指定的指标。
         """
         if not self.early_stop_enabled:
             return False
@@ -119,10 +115,9 @@ class ExperimentMonitor:
             return False
         lower_better = self.early_stop_direction == "lower_better"
         best = min(seq) if lower_better else max(seq)
-        # Plateau: the most recent `patience` epochs have all failed to improve
-        # on the running best beyond the tolerance (counting the current epoch).
-        #   higher_better: value stays within [best - tol, ...]  (no new best)
-        #   lower_better:  value stays within [..., best + tol]  (loss not dropping)
+        # 平台期：最近的 `patience` 个 epoch 相对运行最优值的改进都没超过容差。
+        #   higher_better：值停留在 [best - tol, ...]（没出现新最优）
+        #   lower_better： 值停留在 [..., best + tol]（loss 没再下降）
         sustained = 0
         for v in reversed(seq):
             if lower_better:
@@ -143,15 +138,15 @@ class ExperimentMonitor:
         return False
 
     def launch_experiment(self, command: str, log_file: str, gpu: Optional[str] = None) -> dict:
-        """Launch an experiment via nohup and track its PID.
+        """通过 nohup 启动实验并跟踪其 PID。
 
-        Args:
-            command: The training command to run
-            log_file: Path to redirect stdout/stderr
-            gpu: CUDA_VISIBLE_DEVICES value
+        参数：
+            command: 要运行的训练命令
+            log_file: stdout/stderr 重定向路径
+            gpu: CUDA_VISIBLE_DEVICES 的值
 
-        Returns:
-            dict with pid, log_file, start_time
+        返回：
+            包含 pid、log_file、start_time 的字典
         """
         env = {}
         if gpu is not None:
@@ -173,10 +168,10 @@ class ExperimentMonitor:
         return experiment
 
     def wait_for_completion(self, pid: int, log_file: str, notify: bool = True) -> dict:
-        """Wait for experiment to complete. ZERO LLM calls during wait.
+        """等待实验完成。等待期间**零 LLM 调用**。
 
-        This is the core cost-saving mechanism. Instead of asking the LLM
-        "is training done?", we just check if the process is alive.
+        这是核心的省成本机制：与其问 LLM“训练结束了吗”，不如直接检查进程
+        是否还活着。
         """
         logger.info(f"Monitoring PID={pid}, polling every {self.poll_interval}s")
 
@@ -186,14 +181,13 @@ class ExperimentMonitor:
         while self._is_process_alive(pid):
             time.sleep(self.poll_interval)
 
-            # Log current status (no LLM involved)
+            # 记录当前状态（不涉及 LLM）
             gpu_info = self._safe_gpu_status()
             log_tail = self._safe_tail_file(log_file, lines=5)
             elapsed = time.time() - started
 
-            # A contract: hard wall-clock backstop. If the process outlives the
-            # configured hard limit, kill it so it cannot burn unbounded budget.
-            # (The poll_interval bounds discovery latency but NOT the budget.)
+            # 契约：硬挂钟兜底。若进程存活超过配置的硬上限，则杀掉它，避免
+            # 无界烧钱。（poll_interval 约束的是发现延迟，而非预算本身。）
             if hard_limit > 0 and elapsed >= hard_limit:
                 logger.warning(
                     f"PID={pid} exceeded hard_wall_clock_limit={hard_limit:.0f}s; "
@@ -202,15 +196,14 @@ class ExperimentMonitor:
                 self._terminate(pid)
                 break
 
-            # In-run early stopping (train-level): terminate early when the
-            # per-epoch validation metric has plateaued, so GPU is not wasted
-            # on epochs that cannot improve. Reads the live log tail (no LLM).
+            # 训练内早停（train 级）：当逐轮验证指标进入平台期时提前终止，
+            # 避免把 GPU 浪费在无法再提升的 epoch 上。读取实时日志尾部（无 LLM）。
             if self.early_stop_enabled:
                 try:
                     if self._check_in_run_early_stop(pid, self._safe_tail_file(log_file, lines=200)):
                         self._early_stopped = True
                         break
-                except Exception as exc:  # pragma: no cover - advisory, never crash
+                except Exception as exc:  # pragma: no cover - 建议性，绝不崩溃
                     logger.warning(f"in-run early-stop check failed: {exc}")
 
             logger.info(
@@ -219,46 +212,44 @@ class ExperimentMonitor:
                 f"last_log: {log_tail[-1] if log_tail else 'N/A'}"
             )
 
-        # Experiment finished (or hard-killed) — ask the backend for the real
-        # outcome. Slurm reports the sacct terminal state; pid-only backends
-        # return unknown and we classify via the budget/elapsed instead.
+        # 实验结束（或被硬杀）—— 向 backend 询问真实的运行结果。Slurm 报告
+        # sacct 终止态；仅基于 pid 的 backend 返回 unknown，此时改用预算/耗时分类。
         elapsed = time.time() - started
         log_tail = self._safe_tail_file(log_file, lines=50)
 
         final = self._safe_final_status(pid)
         success = final.get("success")
 
-        # A contract: classify the run under the active budget (advisory when
-        # budget absent -> SUCCESS/TIMEOUT; full status when enforced).
+        # 契约：在激活的预算下对运行分类（无预算时为建议性 -> SUCCESS/TIMEOUT；
+        # 强制预算时给出完整状态）。
         from .experiment_contract import classify_run_outcome
         active_seconds = self._extract_active_train_seconds(log_tail)
         terminated = "crash" if success is False else "completed"
         contract_status = classify_run_outcome(
             active_seconds or elapsed, self.budget, terminated=terminated
         )
-        # Backwards-compatible `status`: "completed"/"failed" as before. The new
-        # `contract_status` (SUCCESS/BUDGET_EXCEEDED/TIMEOUT/CRASH) is additive
-        # and only informative when a budget is configured.
+        # 向后兼容的 `status`：与以前一样是 "completed"/"failed"。新增的
+        # `contract_status`（SUCCESS/BUDGET_EXCEEDED/TIMEOUT/CRASH）是增量字段，
+        # 仅在配置了预算时才具参考意义。
         status = "failed" if success is False else "completed"
 
         if pid in self._active_experiments:
             self._active_experiments[pid]["status"] = status
 
         metrics = self._extract_metrics(log_tail)
-        # E: empty-metric diagnosis. A *completed* run that produced no metric is
-        # itself a signal worth surfacing (it drove the INCOMPARABLE flood), so
-        # attach a compact diagnosis for the loop to feed back to the code agent.
+        # E：空指标诊断。一个*已完成*却未产出任何指标的运行，本身就是一个值得
+        # 暴露的信号（它曾导致 INCOMPARABLE 洪水），因此附上一段精简诊断，
+        # 供 loop 反馈给代码智能体。
         metrics_diagnosis = {}
         if not metrics and status == "completed":
             try:
                 metrics_diagnosis = self._diagnose_empty_metrics(log_tail)
-            except Exception as exc:  # pragma: no cover - diagnostic must never crash
+            except Exception as exc:  # pragma: no cover - 诊断绝不能崩溃
                 logger.warning(f"metrics diagnosis failed: {exc}")
-        # In-run early stop marks the run as a completed, budget-friendly run
-        # (not a crash): the model reached a plateau and training was cut short.
-        # The contract status stays SUCCESS (it IS a clean run — just shorter),
-        # so the promotion gate still allows a genuinely better early-stopped
-        # model to be kept; the `early_stopped` flag records the fact.
+        # 训练内早停把运行标记为一次“已完成、预算友好”的运行（而非崩溃）：模型
+        # 到达平台期后提前结束训练。契约状态保持 SUCCESS（它确实是一次干净运行，
+        # 只是更短），因此晋级闸门仍允许真正更好的早停模型被保留；`early_stopped`
+        # 标志记录了这一事实。
         early_stopped = bool(self._early_stopped)
 
         result = {
@@ -287,7 +278,7 @@ class ExperimentMonitor:
         return result
 
     def has_completed_experiments(self) -> bool:
-        """Check if any tracked experiment has finished."""
+        """检查是否有被跟踪的实验已结束。"""
         for pid, exp in list(self._active_experiments.items()):
             if exp["status"] == "running" and not self._is_process_alive(pid):
                 exp["status"] = "completed"
@@ -295,16 +286,15 @@ class ExperimentMonitor:
         return False
 
     def _is_process_alive(self, pid: int) -> bool:
-        """Check if process is still running (zero cost)."""
+        """检查进程是否仍在运行（零成本）。"""
         return self.backend.is_process_alive(pid)
 
     def _terminate(self, pid: int) -> bool:
-        """Best-effort terminate a run that exceeded its hard budget.
+        """尽最大努力终止一个超出硬预算的运行。
 
-        For a local pid this is SIGTERM then a short grace before SIGKILL.
-        Slurm backends override via ``cancel``; here we degrade gracefully to
-        the backend's ``cancel`` if present, else nothing (the process is left
-        for the OS / Slurm --time to reap).
+        本地 pid：先 SIGTERM，短暂停顿宽限后 SIGKILL。Slurm backend 通过
+        ``cancel`` 覆盖；否则若 backend 有 ``cancel`` 则降级调用之，没有则
+        留给 OS / Slurm 的 --time 来回收。
         """
         cancel = getattr(self.backend, "cancel", None)
         if callable(cancel):
@@ -322,7 +312,7 @@ class ExperimentMonitor:
             return False
 
     def _extract_active_train_seconds(self, log_lines: list[str]) -> Optional[float]:
-        """Read ``active_train_seconds=...`` from the tail of the training log."""
+        """从训练日志尾部读取 ``active_train_seconds=...``。"""
         import re
         for line in reversed(log_lines):
             m = re.search(r"active_train_seconds=([0-9.]+)", line)
@@ -334,46 +324,43 @@ class ExperimentMonitor:
         return None
 
     def _safe_gpu_status(self) -> dict:
+        # 安全读取 GPU 状态，任何异常都降级为 N/A
         try:
             return self.backend.get_gpu_status()
         except Exception:
             return {"utilization": "N/A"}
 
     def _safe_final_status(self, pid: int) -> dict:
+        # 安全读取最终状态，不支持 final_status 的 backend 视为不确定
         try:
             return self.backend.final_status(pid) or {}
         except Exception:
-            # Backend without final_status support -> treat as indeterminate.
             return {"state": "unknown", "success": None}
 
     def _safe_tail_file(self, filepath: str, lines: int = 50) -> list[str]:
+        # 安全读取日志尾部，异常时返回空列表
         try:
             return self.backend.tail_file(filepath, lines=lines)
         except Exception:
             return []
 
     def _extract_metrics(self, log_lines: list[str]) -> dict:
-        """Try to extract common metrics from training logs.
+        """尝试从训练日志提取常用指标。
 
-        Priority order (most reliable first):
-          1. ``RESULT {...}`` — a single-line JSON emitted at the end of a
-             training script (A: structured metric contract). This is the
-             authoritative, whitespace-safe protocol and is preferred over
-             ad-hoc text regexes. A training script simply prints
-             ``RESULT {"validation_accuracy": 0.982, "test_accuracy": 0.979}``.
-          2. Split-aware ``key=value`` lines (validation_* / test_* / train_*).
-          3. Generic patterns (backwards-compatible): loss / accuracy / FGD /
-             FID / epoch / step.
+        优先级（可靠性从高到低）：
+          1. ``RESULT {...}`` —— 训练脚本结尾打印的单行 JSON（A：结构化指标契约）。
+             这是权威的、对空白安全的协议，优先于各种临时的文本正则。训练脚本
+             只需打印 ``RESULT {"validation_accuracy": 0.982, "test_accuracy": 0.979}``。
+          2. 区分 split 的 ``key=value`` 行（validation_* / test_* / train_*）。
+          3. 通用模式（向后兼容）：loss / accuracy / FGD / FID / epoch / step。
 
-        Split responsibility: ``validation_*`` values are kept for per-round
-        selection; ``test_*`` values are tagged so downstream code can treat
-        them as independent-acceptance-only (never fed back to selection).
+        split 职责：``validation_*`` 的值用于逐轮选择；``test_*`` 的值被加上标记，
+        使下游代码能把它视为“仅独立验收”（绝不反馈给选择逻辑）。
         """
         import re
 
         metrics = {}
-        # 1. Structured RESULT contract — take the LAST valid one so the final
-        #    epoch's snapshot wins, and it overrides any regex-extracted values.
+        # 1. 结构化 RESULT 契约 —— 取最后一个有效值，使其覆盖任何正则提取的值。
         for line in log_lines:
             m = re.search(r"RESULT\s+(\{.*\})", line)
             if not m:
@@ -385,13 +372,13 @@ class ExperimentMonitor:
             if isinstance(payload, dict):
                 cleaned = {k: v for k, v in payload.items() if isinstance(v, (int, float))}
                 if cleaned:
-                    metrics = cleaned  # structured contract replaces regex output
+                    metrics = cleaned  # 结构化契约覆盖正则输出
         if metrics:
             return metrics
 
-        # 2/3. Regex fallback (legacy / non-RESULT training scripts).
+        # 2/3. 正则回退（旧式 / 非 RESULT 训练脚本）
         for line in reversed(log_lines):
-            # Split-aware metrics first (validation vs test).
+            # 先匹配区分 split 的指标（validation 与 test）
             for pattern, key in [
                 (r"validation_accuracy=([0-9.]+)", "validation_accuracy"),
                 (r"validation_loss=([0-9.]+)", "validation_loss"),
@@ -406,7 +393,7 @@ class ExperimentMonitor:
                             metrics[key] = float(match.group(1))
                         except ValueError:
                             metrics[key] = match.group(1)
-            # Generic patterns (backwards-compatible).
+            # 通用模式（向后兼容）
             for pattern, key in [
                 (r"loss[:\s]+([0-9.]+)", "loss"),
                 (r"acc(?:uracy)?[:\s]+([0-9.]+)", "accuracy"),
@@ -422,21 +409,18 @@ class ExperimentMonitor:
         return metrics
 
     def _diagnose_empty_metrics(self, log_lines: list[str]) -> dict:
-        """E: Structured diagnosis when a *completed* run yields no metrics.
+        """E：当一次*已完成*运行未产出任何指标时的结构化诊断。
 
-        Instead of silently returning an empty dict (which produced the
-        INCOMPARABLE-"no candidate metrics" flood), classify WHY extraction
-        failed so the loop can hand the code agent actionable feedback:
-          - (none)            metrics ARE extractable -> return {} (no diagnosis).
-          - result_missing:   no ``RESULT {...}`` line at all AND no regex
-                              metric — the training script does not emit the
-                              structured contract.
-          - log_unavailable:  tail returned nothing (log path mismatch).
-          - result_no_numeric:RESULT line present but had no numeric values
-                              (all strings/None).
+        与其静默返回空字典（曾导致 INCOMPARABLE“无候选指标”洪水），不如
+        分类提取失败的原因，使 loop 能给代码智能体可执行的反馈：
+          - (none)            指标可提取 -> 返回 {}（无需诊断）。
+          - result_missing:   完全没有 ``RESULT {...}`` 行，也没有正则指标 ——
+                              训练脚本未输出结构化契约。
+          - log_unavailable:  尾部返回空（日志路径不匹配）。
+          - result_no_numeric:有 RESULT 行，但里面没有数值（全是字符串/None）。
 
-        Returns a compact dict merged into the experiment result under
-        ``metrics_diagnosis`` (advisory only; never used for verdict decisions).
+        返回一段精简字典，并入实验结果下的 ``metrics_diagnosis``（仅建议性，
+        绝不用于 verdict 决策）。
         """
         import re
 
@@ -445,7 +429,7 @@ class ExperimentMonitor:
                     "hint": "Log path mismatch or empty file; launch_experiment log_file "
                             "must match the file the monitor tails."}
 
-        # If the log already parses to metrics, there is nothing to diagnose.
+        # 如果日志已能解析出指标，就没必要诊断了
         if self._extract_metrics(log_lines):
             return {}
 
@@ -456,13 +440,13 @@ class ExperimentMonitor:
                             "line; add one (e.g. print('RESULT ' + json.dumps(metrics))) "
                             "or rely on regex-parseable 'accuracy=...' text."}
 
-        # RESULT present but contained no numeric values (all strings/None).
+        # 有 RESULT 但没有数值（全是字符串/None）
         return {"reason": "result_no_numeric", "lines": len(log_lines),
                 "hint": "RESULT line existed but had no numeric values; emit floats "
                         "(e.g. validation_accuracy as 0.98, not '98%')."}
 
     def _notify_completion(self, result: dict):
-        """Send notification when experiment finishes (success or failure)."""
+        """实验结束（成功或失败）时发送通知。"""
         outcome = result.get("status", "completed").upper()
         logger.info(
             f"EXPERIMENT {outcome} | PID={result['pid']} | "

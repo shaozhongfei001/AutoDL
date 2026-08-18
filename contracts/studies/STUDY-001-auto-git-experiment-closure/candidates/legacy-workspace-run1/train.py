@@ -1,3 +1,8 @@
+"""MNIST GPU 训练脚本（STUDY-001 legacy 候选工作区，最早版本）。
+
+单卷积网络、无独立验证集、固定 seed=0。历史存档代码，用于回溯 Study-001 的
+最初基线运行。
+"""
 import argparse
 import os
 
@@ -13,6 +18,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
 class CNN(nn.Module):
+    """两卷积 + 两全连接的 CNN（最早版本，无 batch norm / dropout）。"""
     def __init__(self):
         super(CNN, self).__init__()
         self.conv1 = nn.Conv2d(1, 32, 3, padding=1)

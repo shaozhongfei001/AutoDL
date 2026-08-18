@@ -1,3 +1,9 @@
+"""MNIST GPU 训练脚本（PILOT 备份，legacy 版本）。
+
+两卷积层 CNN，固定 5000 样本验证集（切分种子 20260815），训练后打印
+``validation_accuracy`` / ``test_accuracy`` / ``active_train_seconds`` 供监控解析。
+历史存档代码。
+"""
 import argparse
 import os
 import time
@@ -14,6 +20,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 
 class CNN(nn.Module):
+    """两卷积 + 两全连接的 CNN。"""
     def __init__(self):
         super(CNN, self).__init__()
         self.conv1 = nn.Conv2d(1, 32, 3, padding=1)
@@ -39,6 +46,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
+    # 固定 5000 样本验证集与切分种子
     VALIDATION_SIZE = 5000
     VALIDATION_SEED = 20260815
 
@@ -58,7 +66,7 @@ def main():
         root="/home/szf/env/AutoDL/examples/mnist_gpu/data", train=False,
         download=False, transform=transform)
 
-    # Fixed 5000-sample validation split from the train set (seed 20260815).
+    # 从训练集切出固定 5000 样本验证集（seed 20260815）
     gen = torch.Generator().manual_seed(VALIDATION_SEED)
     train_subset, val_subset = random_split(
         train_dataset, [len(train_dataset) - VALIDATION_SIZE, VALIDATION_SIZE],
@@ -101,7 +109,7 @@ def main():
 
     train_seconds = time.time() - train_start
 
-    # Validation accuracy.
+    # 验证集精度
     model.eval()
     correct = 0
     total = 0
@@ -116,7 +124,7 @@ def main():
     val_acc = correct / total
     print("validation_accuracy={:.4f}".format(val_acc))
 
-    # Test accuracy.
+    # 测试集精度
     correct = 0
     total = 0
     with torch.no_grad():

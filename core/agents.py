@@ -1,20 +1,18 @@
 """
-AutoResearcher Agent Dispatcher
+AutoResearcher 智能体调度器（Agent Dispatcher）
 
-Leader-Worker architecture for efficient token usage:
-- Leader: Central decision-maker, persistent conversation within a cycle
-- Workers: Specialized agents (idea/code/writing), spawned on demand
+采用 Leader-Worker（领导-工人）架构，以高效利用 token：
+- Leader（领导）：中央决策者，在一个周期内保持连续对话上下文。
+- Worker（工人）：专用智能体（idea 构思 / code 编码 / writing 写作），按需派生。
 
-Only ONE worker runs at a time. Others idle at zero token cost.
+同一时刻**只有一个** worker 在运行，其余处于空闲，零 token 消耗。
 
-Tool use is implemented via a provider-agnostic text protocol. The LLM
-emits <tool_call>{...}</tool_call> blocks, the dispatcher executes each
-call through the ToolRegistry, and results are fed back as
-<tool_result name="...">...</tool_result> blocks in the next user turn.
-The loop runs until the worker produces a response with no tool calls
-(the final answer) or max_turns is exceeded. This works uniformly
-across all four providers — the API SDKs don't use their native
-tool-use protocol, and the CLI providers are simply text oracles.
+工具调用采用「与具体 provider 无关的文本协议」：大模型输出
+``<tool_call>{...}</tool_call>`` 文本块，调度器通过工具注册表执行每个调用，
+再把结果以 ``<tool_result name="...">...</tool_result>`` 文本块回填到下一轮
+用户消息中。循环持续，直到 worker 产出「不再含工具调用的回复」（即最终答案）
+或达到最大轮数。该协议在全部四种 provider 上一致可用——SDK 不依赖各自原生的
+工具协议，CLI provider 则纯粹当作文本预言机（text oracle）使用。
 """
 
 import json
@@ -27,29 +25,29 @@ from typing import Optional
 logger = logging.getLogger("autodl.agents")
 
 
-# Agent definitions directory
+# 智能体提示词目录（agents/）
 AGENTS_DIR = Path(__file__).parent.parent / "agents"
 
 
-# Tool-use text protocol
+# 工具调用文本协议的正则：匹配 <tool_call>{...}</tool_call> 块
 _TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
-# Triple-backtick fenced blocks are stripped before parsing so that LLMs can
-# illustrate the protocol inside code fences without triggering real tool
-# execution. Matches ``` with an optional language tag through the next ```.
+# 位于三反引号代码围栏内的内容在解析前会被整体剥离，这样大模型可以在代码块里
+# “演示”该协议而不会触发真实工具执行。匹配从 ``` 到下一个 ``` 的整块。
 _FENCED_BLOCK_RE = re.compile(r"```[^\n]*\n.*?```", re.DOTALL)
 
 
 class AgentDispatcher:
-    """Dispatches tasks to specialized agents.
+    """把任务分派给专用智能体。
 
-    The Leader agent decides what to do, then dispatches to workers:
-    - idea_agent: Literature search, hypothesis formation
-    - code_agent: Experiment implementation and execution
-    - writing_agent: Report generation and paper writing
+    Leader 决定做什么，再把任务派给 worker：
+    - idea_agent：文献检索、假设生成
+    - code_agent：实验实现与执行
+    - writing_agent：报告与论文撰写
 
-    Each worker has a minimal tool set (3-5 tools) to reduce token overhead.
+    每个 worker 只配备极简工具集（3-5 个），以降低 token 开销。
     """
 
+    # 各 worker 的配置：提示词文件、最大轮数、可用工具清单
     WORKER_CONFIGS = {
         "idea": {
             "prompt_file": "idea_agent.md",
@@ -71,27 +69,26 @@ class AgentDispatcher:
         },
     }
 
-    # Model mapping between providers
+    # 各 provider 之间的模型名映射
     MODEL_MAP = {
-        # Anthropic ↔ OpenAI equivalents
-        "claude-sonnet-4-6": "codex-5.3",     # Fast tier
-        "claude-opus-4-6": "gpt-5.4",          # Strongest tier
+        # Anthropic ↔ OpenAI 等价表
+        "claude-sonnet-4-6": "codex-5.3",     # 快速档
+        "claude-opus-4-6": "gpt-5.4",          # 最强档
         "codex-5.3": "claude-sonnet-4-6",
         "gpt-5.4": "claude-opus-4-6",
     }
 
-    # Supported providers:
-    #   "anthropic"  — Anthropic-compatible SDK endpoint (default auth env: ANTHROPIC_API_KEY)
-    #   "openai"     — OpenAI-compatible SDK endpoint (default auth env: OPENAI_API_KEY)
-    #   "claude_cli" — `claude -p` subprocess, uses Claude Code / Pro / Max subscription
-    #   "codex_cli"  — `codex exec` subprocess, uses ChatGPT Plus / Pro subscription
+    # 支持的 provider：
+    #   "anthropic"  —— Anthropic 兼容 SDK 接口（默认鉴权环境变量：ANTHROPIC_API_KEY）
+    #   "openai"     —— OpenAI 兼容 SDK 接口（默认鉴权环境变量：OPENAI_API_KEY）
+    #   "claude_cli" —— `claude -p` 子进程，使用 Claude Code / Pro / Max 订阅
+    #   "codex_cli"  —— `codex exec` 子进程，使用 ChatGPT Plus / Pro 订阅
     SUPPORTED_PROVIDERS = ("anthropic", "openai", "claude_cli", "codex_cli")
 
-    # Domestic / OpenAI-compatible API presets. Set `provider` to one of these
-    # to run on a Chinese LLM API instead of a Claude/Codex subscription — the
-    # preset just fills in the OpenAI-compatible base_url and default key env
-    # (both still overridable in config) and routes via the "openai" path.
-    #   name -> (base_url, default api-key env var)
+    # 国内 / OpenAI 兼容 API 预设。把 `provider` 设为下列之一即可改用国产 LLM
+    # （而非 Claude/Codex 订阅）——预设只是填好 OpenAI 兼容的 base_url 与默认
+    # key 环境变量（二者仍可在 config 中覆盖），并经由 "openai" 路径路由。
+    #   名称 -> (base_url, 默认 api-key 环境变量)
     PROVIDER_PRESETS = {
         "deepseek":  ("https://api.deepseek.com/v1", "DEEPSEEK_API_KEY"),
         "dashscope": ("https://dashscope.aliyuncs.com/compatible-mode/v1", "DASHSCOPE_API_KEY"),
@@ -114,9 +111,8 @@ class AgentDispatcher:
         auth_token_env: str = "",
         max_tokens: int = 8192,
     ):
-        # Expand a domestic preset (deepseek / qwen / kimi / glm / ...) into the
-        # OpenAI-compatible path. base_url / api_key_env stay overridable: an
-        # explicit value in config wins over the preset default.
+        # 把国产预设（deepseek / qwen / kimi / glm / ...）展开为 OpenAI 兼容路径。
+        # base_url / port 仍可覆盖：config 中的显式值优先于预设默认值。
         self.provider_label = provider
         preset = self.PROVIDER_PRESETS.get(provider)
         if preset:
@@ -136,27 +132,27 @@ class AgentDispatcher:
         self.base_url = (base_url or "").strip() or None
         self.api_key = api_key or self._resolve_secret(api_key_env)
         self.auth_token = auth_token or self._resolve_secret(auth_token_env)
-        self._leader_history = []
+        self._leader_history = []  # Leader 在本周期内的对话历史
 
     @staticmethod
     def _resolve_secret(env_name: str) -> Optional[str]:
+        # 从环境变量读取密钥（为空则返回 None）
         env_name = (env_name or "").strip()
         if not env_name:
             return None
         return os.environ.get(env_name)
 
     def dispatch_leader(self, task: str, context: dict) -> dict:
-        """Send a task to the Leader agent.
+        """向 Leader 智能体派发任务。
 
-        The Leader maintains conversation history within a cycle for
-        coherent multi-step reasoning. History is cleared between cycles.
+        Leader 在一个周期内部保持对话历史，以进行连贯的多步推理；周期之间清空历史。
 
-        Args:
-            task: "think" or "reflect"
-            context: Current state (brief, memory, results, etc.)
+        参数：
+            task: "think"（思考）或 "reflect"（反思）
+            context: 当前状态（简报、记忆、结果等）
 
-        Returns:
-            Leader's decision as a dict
+        返回：
+            Leader 的决策（dict）
         """
         system_prompt = self._load_prompt("leader.md")
 
@@ -168,32 +164,28 @@ class AgentDispatcher:
 
         response = self._call_llm(system=system_prompt, messages=messages)
 
-        # Persist conversation for within-cycle coherence
+        # 持久化对话，保证本周期内的连贯性
         self._leader_history = messages + [{"role": "assistant", "content": response}]
 
         return self._parse_leader_response(response)
 
     def dispatch_worker(self, agent_type: str, task: str, tool_registry) -> dict:
-        """Dispatch a task to a worker agent and run its tool-use loop.
+        """向 worker 智能体派发任务并运行其工具调用循环。
 
-        Workers are stateless across dispatches — each call starts with a
-        fresh conversation. Within a single dispatch the conversation is
-        multi-turn: the worker may emit tool calls, receive results, and
-        continue reasoning until it produces a final answer (a response
-        containing no <tool_call> blocks).
+        worker 在多次派发之间**无状态**——每次调用都从全新的对话开始。但在单次
+        派发内部对话是多轮的：worker 可发出工具调用、接收结果，并持续推理，直到
+        产出最终答案（一个不再含 ``<tool_call>`` 块的回复）。
 
-        Args:
-            agent_type: "idea", "code", or "writing".
-            task: Task description from the Leader.
-            tool_registry: ToolRegistry that provides `get_tools_for` and
-                `execute_tool`. The registry itself is passed in so this
-                module does not have a hard import dependency on tools.py.
+        参数：
+            agent_type: "idea" / "code" / "writing"
+            task: 来自 Leader 的任务描述
+            tool_registry: 提供 `get_tools_for` 与 `execute_tool` 的工具注册表。
+                注册表被显式传入，因此本模块无需硬依赖 tools.py。
 
-        Returns:
-            Dict with at minimum `agent` and `response`. If the worker
-            called `launch_experiment`, the PID and log_file from that
-            tool result are also surfaced at the top level so the loop's
-            EXECUTE → MONITOR handoff keeps working.
+        返回：
+            至少含 `agent` 与 `response` 的 dict。若 worker 调用了
+            `launch_experiment`，则该工具结果中的 PID 与 log_file 也会被提到顶层，
+            以保持 loop 的 EXECUTE → MONITOR 衔接正常。
         """
         if agent_type not in self.WORKER_CONFIGS:
             raise ValueError(f"Unknown agent type: {agent_type}")
@@ -211,12 +203,10 @@ class AgentDispatcher:
         system_prompt = base_prompt + "\n\n" + self._render_tools_section(tool_defs)
         max_turns = config["max_turns"]
 
-        # codex_cli hard-codes its own agentic tool loop; it will ignore the
-        # <tool_call> protocol and silently act on its own. That breaks the
-        # EXECUTE → MONITOR handoff (no PID, no log_file from ToolRegistry).
-        # Leader/think dispatches are fine (they do not use tools) but worker
-        # dispatches will likely return a non-authoritative summary. Warn once
-        # per dispatch so users see it in the log without it becoming noise.
+        # codex_cli 内部自带 agentic 工具循环，会无视本 <tool_call> 协议自行其是，
+        # 从而破坏 EXECUTE → MONITOR 衔接（拿不到 PID / log_file）。Leader/think
+        # 派发不受影响（它们不用工具），但 worker 派发很可能只返回非权威的摘要。
+        # 每次派发只警告一次，避免日志噪声。
         if self.provider == "codex_cli" and tool_defs:
             logger.warning(
                 "codex_cli is being used as a worker provider; its CLI does "
@@ -232,9 +222,8 @@ class AgentDispatcher:
         last_response = ""
         tool_results_log: list[dict] = []
 
-        # Native OpenAI tools schema derived from the tool definitions, so the
-        # model can return structured tool_calls instead of hand-writing the
-        # <tool_call> text protocol (which many models do unreliably).
+        # 由工具定义推导出的原生 OpenAI tools schema，使模型能返回结构化的
+        # tool_calls，而非手写不可靠的 <tool_call> 文本协议。
         native_tools = None
         if tool_defs:
             native_tools = self._to_native_tools(tool_defs)
@@ -246,13 +235,13 @@ class AgentDispatcher:
 
             tool_calls = self._parse_tool_calls(last_response)
             if not tool_calls:
-                # No tool calls → worker has produced its final answer.
+                # 无工具调用 -> worker 已产出最终答案，结束循环
                 break
 
-            # Echo the assistant turn so the next LLM call sees the history.
+            # 回显 assistant 轮，使下一轮 LLM 调用能看到历史
             messages.append({"role": "assistant", "content": last_response})
 
-            # Execute each call and build a single user turn with all results.
+            # 执行每个调用，并把所有结果拼成一个 user 轮
             result_blocks = []
             for call in tool_calls:
                 name = call.get("name", "")
@@ -264,9 +253,8 @@ class AgentDispatcher:
                 tool_results_log.append({"name": name, "args": args, "output": tool_output})
 
                 block = f'<tool_result name="{name}">\n{tool_output}\n</tool_result>'
-                # D: surface an escalation hint prominently when a tool keeps
-                # failing, so the worker changes strategy instead of retrying the
-                # same invalid call turn after turn.
+                # D：当某工具持续失败时，显著提示 worker 改变策略，而非一遍遍重试
+                # 同一个非法调用。
                 if tool_output.startswith("{") and '"escalation"' in tool_output:
                     try:
                         payload = json.loads(tool_output)
@@ -286,7 +274,7 @@ class AgentDispatcher:
                 "content": "\n\n".join(result_blocks),
             })
         else:
-            # for/else: executed only when the loop exhausts max_turns without break.
+            # for/else：仅当循环耗尽 max_turns 而未 break 时执行
             logger.warning(
                 f"Worker {agent_type} hit max_turns={max_turns} "
                 f"with tool calls still pending; returning last response."
@@ -297,21 +285,18 @@ class AgentDispatcher:
         return result
 
     def reset_leader_history(self):
-        """Clear leader conversation history between cycles."""
+        """在周期之间清空 Leader 对话历史。"""
         self._leader_history = []
 
     @staticmethod
     def _parse_tool_calls(text: str) -> list[dict]:
-        """Extract <tool_call>{...}</tool_call> blocks from an LLM response.
+        """从 LLM 回复中提取 ``<tool_call>{...}</tool_call>`` 块。
 
-        Silently skips blocks whose JSON body is malformed. An empty list
-        means the response is a final answer (no tool calls requested).
+        静默跳过 JSON 体损坏的块。返回空列表意味着回复是最终答案（未请求工具调用）。
 
-        Tool-call blocks inside triple-backtick code fences are deliberately
-        ignored: LLMs routinely illustrate the protocol inside fenced blocks
-        when explaining what they are about to do, and executing those
-        illustrations as real side-effectful calls has caused accidental
-        writes in practice.
+        位于三反引号代码围栏内的工具调用块会被刻意忽略：大模型在解释“将要做什么”
+        时常常在围栏里演示该协议，把这些演示当成真实的有副作用调用执行，曾在实践中
+        导致意外的写入。
         """
         stripped = _FENCED_BLOCK_RE.sub("", text or "")
         calls: list[dict] = []
@@ -333,11 +318,11 @@ class AgentDispatcher:
 
     @staticmethod
     def _to_native_tools(tool_defs: list[dict]) -> list[dict]:
-        """Convert project tool definitions to OpenAI native `tools` schema.
+        """把项目工具定义转换为 OpenAI 原生 `tools` schema。
 
-        Project defs use {"name", "description", "input_schema"}; the OpenAI
-        API expects {"type": "function", "function": {"name", "description",
-        "parameters"}} where `parameters` == `input_schema`.
+        项目定义采用 {"name", "description", "input_schema"}；OpenAI API 期望
+        {"type": "function", "function": {"name", "description", "parameters"}}，
+        其中 `parameters` == `input_schema`。
         """
         native = []
         for t in tool_defs or []:
@@ -356,17 +341,28 @@ class AgentDispatcher:
 
     @staticmethod
     def _render_tools_section(tool_defs: list[dict]) -> str:
-        """Render tool schemas as a plain-text block appended to the system prompt.
+        """把工具 schema 渲染成追加到 system prompt 的纯文本块。
 
-        The worker's own prompt already has a short 'Tools Available' list;
-        this auto-generated section provides the exact machine-readable
-        schemas and protocol instructions so the LLM emits calls in the
-        format the dispatcher can parse.
+        worker 自身的提示词已含简短的“可用工具”列表；本自动生成段落提供精确的
+        机器可读 schema 与协议说明，使 LLM 能以调度器可解析的格式发出调用。
         """
         if not tool_defs:
             return ""
 
-        lines = [
+        lines = []
+        for tool in tool_defs:
+            name = tool.get("name", "<unnamed>")
+            desc = tool.get("description", "")
+            schema = tool.get("input_schema", {})
+            lines.append(f"- `{name}` — {desc}")
+            props = schema.get("properties", {}) or {}
+            required = set(schema.get("required", []) or [])
+            for pname, pspec in props.items():
+                ptype = pspec.get("type", "any")
+                pdesc = pspec.get("description", "")
+                flag = "required" if pname in required else "optional"
+                lines.append(f"    - `{pname}` ({ptype}, {flag}): {pdesc}")
+        header = [
             "## Tool-Use Protocol",
             "",
             "You have NO direct access to the filesystem, shell, or network.",
@@ -390,33 +386,20 @@ class AgentDispatcher:
             "### Available tools",
             "",
         ]
-        for tool in tool_defs:
-            name = tool.get("name", "<unnamed>")
-            desc = tool.get("description", "")
-            schema = tool.get("input_schema", {})
-            lines.append(f"- `{name}` — {desc}")
-            props = schema.get("properties", {}) or {}
-            required = set(schema.get("required", []) or [])
-            for pname, pspec in props.items():
-                ptype = pspec.get("type", "any")
-                pdesc = pspec.get("description", "")
-                flag = "required" if pname in required else "optional"
-                lines.append(f"    - `{pname}` ({ptype}, {flag}): {pdesc}")
-        return "\n".join(lines)
+        return "\n".join(header + lines)
 
     def _call_llm(self, system: str, messages: list, tools: list | None = None) -> str:
-        """Call the LLM. Four providers are supported.
+        """调用 LLM。支持四种 provider。
 
-        - "anthropic":  Anthropic-compatible SDK endpoint, per-token API billing
-        - "openai":     OpenAI-compatible SDK endpoint, per-token API billing
-        - "claude_cli": `claude -p` subprocess, uses Claude Code / Pro / Max subscription
-        - "codex_cli":  `codex exec` subprocess, uses ChatGPT Plus / Pro subscription
+        - "anthropic":  Anthropic 兼容 Messages API，按 token 计费
+        - "openai":     OpenAI 兼容 Chat Completions API，按 token 计费
+        - "claude_cli": `claude -p` 子进程，使用 Claude Code / Pro / Max 订阅
+        - "codex_cli":  `codex exec` 子进程，使用 ChatGPT Plus / Pro 订阅
 
-        CLI providers let you reuse existing subscriptions instead of paying per-token,
-        which is much cheaper when running many agents in parallel or doing heavy
-        Think/Reflect cycles. Trade-off: no native prompt caching, no native tool-use
-        protocol — the LLM is driven purely as a text-in / text-out oracle, and tool
-        use is layered on top via the <tool_call> text protocol (see dispatch_worker).
+        CLI provider 让你复用已有订阅，而非按 token 付费；在并行大量智能体或重
+        负载 Think/Reflect 周期时便宜得多。代价：无原生 prompt 缓存、无原生工具
+        协议——LLM 被纯粹当作“文本进/文本出”预言机，工具调用通过 <tool_call>
+        文本协议叠加在其上（见 dispatch_worker）。
         """
         if self.provider == "claude_cli":
             return self._call_claude_cli(system, messages)
@@ -427,7 +410,7 @@ class AgentDispatcher:
         return self._call_anthropic(system, messages, tools)
 
     def _call_anthropic(self, system: str, messages: list, tools: list | None = None) -> str:
-        """Call an Anthropic-compatible Messages API."""
+        """调用 Anthropic 兼容 Messages API。"""
         try:
             import anthropic
 
@@ -440,12 +423,9 @@ class AgentDispatcher:
                 client_kwargs["auth_token"] = self.auth_token
             client = anthropic.Anthropic(**client_kwargs)
 
-            api_messages = []
-            for msg in messages:
-                api_messages.append({
-                    "role": msg["role"],
-                    "content": msg["content"],
-                })
+            api_messages = [
+                {"role": msg["role"], "content": msg["content"]} for msg in messages
+            ]
 
             kwargs = {
                 "model": self.model,
@@ -462,13 +442,12 @@ class AgentDispatcher:
             return self._call_openai(system, messages)
 
     def _call_openai(self, system: str, messages: list, tools: list | None = None) -> str:
-        """Call an OpenAI-compatible chat completions API.
+        """调用 OpenAI 兼容 Chat Completions API。
 
-        If `tools` is provided, the native `tools` parameter is used so the model
-        returns structured `tool_calls`. These are translated back into the
-        project's `<tool_call>` text protocol so downstream parsers are unchanged.
-        This makes tool use reliable on models (e.g. DeepSeek official API) that
-        do not emit the custom `<tool_call>` text format consistently.
+        若提供了 `tools`，则使用原生 `tools` 参数，让模型返回结构化的 `tool_calls`。
+        这些调用会被转译回项目的 `<tool_call>` 文本协议，从而下游解析器不变。
+        这使工具调用在那些不能稳定输出自定义 `<tool_call>` 文本的模型（例如
+        DeepSeek 官方 API）上也能可靠工作。
         """
         try:
             import openai
@@ -480,15 +459,12 @@ class AgentDispatcher:
                 client_kwargs["api_key"] = self.api_key
             client = openai.OpenAI(**client_kwargs)
 
-            # Map model name if it's an Anthropic model name
+            # 若模型名是 Anthropic 名称则做映射
             model = self.MODEL_MAP.get(self.model, self.model) if self.provider != "openai" else self.model
 
             api_messages = [{"role": "system", "content": system}]
             for msg in messages:
-                api_messages.append({
-                    "role": msg["role"],
-                    "content": msg["content"],
-                })
+                api_messages.append({"role": msg["role"], "content": msg["content"]})
 
             call_kwargs: dict = {
                 "model": model,
@@ -502,8 +478,7 @@ class AgentDispatcher:
 
             message = response.choices[0].message
 
-            # If the model returned structured native tool_calls, translate them
-            # back into the project's <tool_call> text protocol.
+            # 若模型返回了原生 tool_calls，转译回项目 <tool_call> 文本协议
             native_calls = getattr(message, "tool_calls", None)
             if native_calls:
                 blocks = []
@@ -522,15 +497,13 @@ class AgentDispatcher:
                     return "\n".join(blocks)
 
             text = getattr(message, "content", None)
-            # Reasoning-style models (e.g. Qwen3.6-27B / deepseek-r1) may emit
-            # chain-of-thought in a `reasoning` field with `content` still None
-            # when the token budget is consumed by thinking. Fall back to that
-            # so we never return None to downstream parsers.
+            # 推理型模型（如 Qwen3.6-27B / deepseek-r1）可能在 `reasoning` 字段中
+            # 输出思维链，而 `content` 因 token 预算被思维链占满而为 None。降级
+            # 使用 reasoning，避免向下游解析器返回 None。
             if not text and getattr(message, "reasoning", None):
                 text = message.reasoning
             if not text:
-                # Last-resort fallback: return a safe degraded action instead of
-                # letting None propagate and crash response parsing.
+                # 最后兜底：返回一段安全的降级动作，而非让 None 传播并导致解析崩溃
                 logger.warning("openai chat completion returned empty content; using fallback.")
                 return json.dumps(
                     {"action": "wait", "reason": "LLM returned no content (token budget may be exhausted)."}
@@ -543,12 +516,11 @@ class AgentDispatcher:
 
     @staticmethod
     def _flatten_for_cli(system: str, messages: list) -> str:
-        """Serialize (system + chat history) into a single prompt for CLI subprocess.
+        """把 (system + 对话历史) 序列化为供 CLI 子进程使用的单一提示词。
 
-        The headless CLI tools (claude -p / codex exec) take one blob of text and
-        return the assistant reply. We rebuild the conversation using simple
-        section markers rather than a structured role schema — good enough for
-        single-turn dispatches, which is how the loop already uses the LLM.
+        无头 CLI 工具（claude -p / codex exec）只接受一个文本块并返回 assistant 回复。
+        我们用简单的分段标记重建对话，而非结构化 role schema——对单轮派发足够好，
+        而 loop 本就如此使用 LLM。
         """
         parts = [f"===== SYSTEM =====\n{system.strip()}\n"]
         for msg in messages:
@@ -560,7 +532,7 @@ class AgentDispatcher:
 
     def _run_cli(self, argv: list, prompt: str, tool_label: str, install_hint: str,
                  use_stdin: bool = False) -> str:
-        """Invoke a headless CLI tool and return its stdout as the assistant reply."""
+        """调用无头 CLI 工具，把其 stdout 作为 assistant 回复返回。"""
         import subprocess
 
         try:
@@ -591,7 +563,7 @@ class AgentDispatcher:
             logger.error(f"{tool_label} CLI timed out after 600s")
             return json.dumps({"action": "wait", "reason": f"{tool_label} CLI timeout"})
         except OSError as e:
-            # argv too large (E2BIG) — retry via stdin
+            # argv 过大（E2BIG）——改用 stdin 重试
             if not use_stdin and getattr(e, "errno", None) == 7:
                 logger.info(f"{tool_label} argv exceeded OS limit; retrying via stdin.")
                 return self._run_cli(argv, prompt, tool_label, install_hint, use_stdin=True)
@@ -608,16 +580,13 @@ class AgentDispatcher:
         return (result.stdout or "").strip()
 
     def _call_claude_cli(self, system: str, messages: list) -> str:
-        """Headless dispatch via the `claude` CLI, billed against a Pro / Max subscription.
+        """通过 `claude` CLI 无头派发，按 Pro / Max 订阅计费。
 
-        `--tools ""` disables every built-in tool so the CLI degrades to a
-        pure text oracle. This is required for our <tool_call> protocol
-        to work: the CLI must be unable to act on its own, otherwise it
-        will bypass our ToolRegistry (and the loop loses visibility over
-        what actually happened, especially for launch_experiment PIDs).
+        `--tools ""` 禁用所有内置工具，使 CLI 降级为纯文本预言机。这是我们的
+        <tool_call> 协议工作所必需的：CLI 必须无法自行其是，否则会绕过 ToolRegistry
+        （loop 将失去对实际发生之事的可见性，尤其是 launch_experiment 的 PID）。
 
-        The prompt is piped via stdin to sidestep argv-size limits on
-        large conversation histories.
+        提示词通过 stdin 传入，以规避大对话历史的 argv 长度限制。
         """
         prompt = self._flatten_for_cli(system, messages)
         return self._run_cli(
@@ -629,22 +598,18 @@ class AgentDispatcher:
         )
 
     def _call_codex_cli(self, system: str, messages: list) -> str:
-        """Headless dispatch via the `codex` CLI, billed against a ChatGPT subscription.
+        """通过 `codex` CLI 无头派发，按 ChatGPT 订阅计费。
 
-        Unlike `claude -p`, `codex exec` is fully agentic by default — it runs
-        its own internal tool-use loop and there is no CLI flag to disable
-        the built-in tools. That means the framework's <tool_call> protocol
-        is unreliable under this provider: codex will often act on its own
-        and return a final summary. Workers that need to launch experiments
-        (and recover a PID from the ToolRegistry) should therefore prefer
-        claude_cli / anthropic / openai; codex_cli is best kept for the
-        leader/think path where we only need free-text output.
+        与 `claude -p` 不同，`codex exec` 默认是完全 agentic 的——它运行自己的内部
+        工具循环，且没有任何 CLI 标志能禁用内置工具。这意味着在本 provider 下框架
+        的 <tool_call> 协议不可靠：codex 会常常自行其是并返回一段最终摘要。因此
+        需要启动实验（并从 ToolRegistry 回收 PID）的 worker 应优先选用
+        claude_cli / anthropic / openai；codex_cli 最好只用于 leader/think 路径
+        （那里我们只需要自由文本输出）。
 
-        Flags:
-          - `-o <tempfile>`       captures only the final assistant message
-                                  instead of the full agentic trace,
-          - `--skip-git-repo-check` allows codex to run in arbitrary dirs
-                                    (the workspace is typically not a repo).
+        标志：
+          - `-o <tempfile>`       只捕获最终的 assistant 消息而非完整 agentic trace
+          - `--skip-git-repo-check` 允许 codex 在任意目录下运行（工作区通常不是仓库）
         """
         import subprocess
         import tempfile
@@ -690,7 +655,7 @@ class AgentDispatcher:
                 with open(out_path, "r") as f:
                     return f.read().strip()
             except OSError:
-                # Fall back to stdout if --output-last-message didn't produce a file.
+                # 若 --output-last-message 没产出文件，则降级用 stdout
                 return (result.stdout or "").strip()
         finally:
             try:
@@ -699,7 +664,7 @@ class AgentDispatcher:
                 pass
 
     def _load_prompt(self, filename: str) -> str:
-        """Load agent prompt from agents/ directory."""
+        """从 agents/ 目录加载智能体提示词。"""
         prompt_path = AGENTS_DIR / filename
         if prompt_path.exists():
             return prompt_path.read_text()
@@ -707,7 +672,7 @@ class AgentDispatcher:
         return f"You are the {filename.replace('.md', '')} agent."
 
     def _format_leader_input(self, task: str, context: dict) -> str:
-        """Format context into a structured input for the Leader."""
+        """把上下文格式化为 Leader 的结构化输入。"""
         parts = [f"## Task: {task.upper()}\n"]
 
         if context.get("directive"):
@@ -716,8 +681,8 @@ class AgentDispatcher:
         parts.append(f"## Project Brief\n{context.get('brief', 'N/A')}\n")
         parts.append(f"## Memory Log\n{context.get('memory_log', 'N/A')}\n")
 
-        # Optional v2 advisory signals injected by the loop's _enrich_context.
-        # Rendered only when present so older call sites are unaffected.
+        # 由 loop 的 _enrich_context 注入的可选 v2 建议性信号。仅当存在时才渲染，
+        # 以兼容旧的调用点。
         for label, key in (
             ("Active Violations", "active_violations"),
             ("Phase Gate", "phase_gate"),
@@ -738,9 +703,9 @@ class AgentDispatcher:
         return "\n".join(parts)
 
     def _parse_leader_response(self, response: str) -> dict:
-        """Parse Leader's response into structured action."""
+        """把 Leader 的回复解析为结构化动作。"""
         try:
-            # Try to find JSON in response
+            # 尝试从回复中找到 JSON
             import re
             json_match = re.search(r"\{[^{}]*\}", response, re.DOTALL)
             if json_match:
@@ -748,7 +713,7 @@ class AgentDispatcher:
         except (json.JSONDecodeError, AttributeError):
             pass
 
-        # Fallback: extract action from text
+        # 兜底：从文本中提取动作
         response_lower = response.lower()
         if "wait" in response_lower or "no experiment" in response_lower:
             return {"action": "wait", "reason": response[:200]}
@@ -761,20 +726,18 @@ class AgentDispatcher:
 
     def _parse_worker_response(self, response: str, agent_type: str,
                                tool_results: Optional[list] = None) -> dict:
-        """Parse worker response into a structured result dict.
+        """把 worker 回复解析为结构化结果字典。
 
-        When the worker used the `launch_experiment` tool, the PID and
-        log_file come directly from that tool's JSON result — this is
-        authoritative. The regex-on-free-text path is retained as a
-        fallback for responses that report an experiment launch purely
-        in prose (or for older prompts that predate the tool-use loop).
+        当 worker 使用了 `launch_experiment` 工具时，PID 与 log_file 直接来自该工具
+        的 JSON 结果——这是权威来源。对纯散文报告实验启动的回复（或早于工具调用
+        循环的旧提示词），保留基于正则从自由文本解析的兜底路径。
         """
         result = {"agent": agent_type, "response": response}
         if tool_results:
             result["tool_calls"] = len(tool_results)
 
         if agent_type == "code":
-            # Prefer authoritative tool-result data over text parsing.
+            # 优先采用权威的工具结果数据，而非文本解析
             launch_result = None
             if tool_results:
                 for entry in reversed(tool_results):
@@ -792,7 +755,7 @@ class AgentDispatcher:
                     if payload.get("log_file"):
                         result["log_file"] = payload["log_file"]
 
-            # Fallback: scrape PID from free-text response.
+            # 兜底：从自由文本回复中抓取 PID
             if "pid" not in result and ("PID" in response or "launched" in response.lower()):
                 result["experiment_launched"] = True
                 pid_match = re.search(r"PID[=:\s]+(\d+)", response)

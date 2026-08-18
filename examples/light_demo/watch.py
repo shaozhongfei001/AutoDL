@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Second-by-second console watcher for a training process.
+"""逐秒控制台观察器，用于监控训练进程。
 
-Reuses the project's ExecutionBackend zero-cost primitives (is_process_alive,
-get_gpu_status, tail_file) to poll every 1 second and print a status line to
-the console. No LLM calls — this is the same cheap monitoring philosophy as
-core/monitor.py, just denser (1s instead of the default poll_interval).
+复用项目 ExecutionBackend 的零成本原语（is_process_alive、get_gpu_status、
+tail_file），每秒轮询一次并向控制台打印一行状态。不做任何 LLM 调用——这与
+core/monitor.py 的“廉价监控”哲学一致，只是更密集（1 秒而非默认的 poll_interval）。
 
-Usage:
-    # 1) Launch a training command that writes to a log file, then watch it:
+用法：
+    # 1) 启动一个写入日志文件的训练命令，然后观察它：
     python watch.py launch --cmd "python train_demo.py --steps 10" --log train.log
 
-    # 2) Or watch an already-running PID + log file:
+    # 2) 或者观察一个已在运行的 PID + 日志文件：
     python watch.py --pid <PID> --log <path/to/log>
 """
 import argparse
@@ -20,7 +19,7 @@ import sys
 import time
 from pathlib import Path
 
-# Make the project root importable so `core.*` resolves when run from this dir.
+# 把项目根目录加入 sys.path，使得从该目录运行时能正确解析 `core.*` 导入。
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
@@ -29,6 +28,7 @@ from core.execution import LocalExecutionBackend
 
 
 def _fmt_gpu(gpu: dict) -> str:
+    # 把 GPU 状态字典格式化成一行简短文本
     util = gpu.get("utilization")
     mem = gpu.get("memory_used") or gpu.get("memory_used_mb")
     name = gpu.get("name", "")
@@ -38,6 +38,7 @@ def _fmt_gpu(gpu: dict) -> str:
 
 
 def _print_status(pid: int, log_file: str, backend: LocalExecutionBackend, t0: float):
+    # 打印一次状态行：存活、耗时、GPU、日志尾部
     alive = backend.is_process_alive(pid)
     elapsed = time.time() - t0
     gpu = _fmt_gpu(backend.get_gpu_status())
@@ -53,6 +54,7 @@ def _print_status(pid: int, log_file: str, backend: LocalExecutionBackend, t0: f
 
 
 def watch_pid(pid: int, log_file: str, interval: float = 1.0):
+    # 观察一个已存在的 PID，直到它退出
     backend = LocalExecutionBackend(".")
     t0 = time.time()
     print(f"Watching pid={pid} log={log_file} every {interval}s. Ctrl-C to stop.", flush=True)
@@ -63,7 +65,7 @@ def watch_pid(pid: int, log_file: str, interval: float = 1.0):
     except KeyboardInterrupt:
         print("\nStopped by user.", flush=True)
         return 130
-    # Process exited — one final status with the log tail.
+    # 进程已退出——打印最后一次状态与日志尾部。
     _print_status(pid, log_file, backend, t0)
     print("Process exited. Last log tail:", flush=True)
     for line in backend.tail_file(log_file, lines=8):
@@ -72,9 +74,8 @@ def watch_pid(pid: int, log_file: str, interval: float = 1.0):
 
 
 def launch_and_watch(cmd: str, log_file: str, interval: float = 1.0):
-    # LocalExecutionBackend resolves paths relative to its workspace ("." = CWD).
-    # Use a relative log path so launch (which resolves under workspace) and
-    # tail_file (same resolution) agree on the same file.
+    # LocalExecutionBackend 的路径都相对其工作区（"." = 当前目录）。使用相对日志路径，
+    # 使 launch（在 workspace 下解析）与 tail_file（同样的解析）指向同一文件。
     backend = LocalExecutionBackend(".")
     os.makedirs(os.path.dirname(log_file) or ".", exist_ok=True)
     exp = backend.launch_command(argv=shlex.split(cmd), log_file=log_file)
@@ -85,15 +86,15 @@ def launch_and_watch(cmd: str, log_file: str, interval: float = 1.0):
 
 def main():
     parser = argparse.ArgumentParser(description="1-second console watcher")
-    parser.add_argument("--pid", type=int, default=None, help="PID to watch")
-    parser.add_argument("--log", type=str, default="train.log", help="log file path")
-    parser.add_argument("--interval", type=float, default=1.0, help="poll interval (s)")
+    parser.add_argument("--pid", type=int, default=None, help="要观察的 PID")
+    parser.add_argument("--log", type=str, default="train.log", help="日志文件路径")
+    parser.add_argument("--interval", type=float, default=1.0, help="轮询间隔（秒）")
     parser.add_argument(
         "action", nargs="?", default="watch",
         choices=["watch", "launch"],
-        help="'watch' an existing pid, or 'launch' a command then watch",
+        help="“watch” 一个已有 pid，或 “launch” 一个命令后再观察",
     )
-    parser.add_argument("--cmd", type=str, default=None, help="command to launch (with 'launch')")
+    parser.add_argument("--cmd", type=str, default=None, help="要启动的命令（配合 'launch'）")
     args = parser.parse_args()
 
     if args.action == "launch":

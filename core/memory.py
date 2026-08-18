@@ -1,11 +1,11 @@
 """
-AutoResearcher Two-Tier Memory System
+AutoResearcher 两层记忆系统
 
-Maintains a constant-size memory regardless of how long the agent runs:
-- Tier 1 (PROJECT_BRIEF.md): Frozen reference, never modified by the agent
-- Tier 2 (MEMORY_LOG.md): Rolling log with auto-compaction
+无论智能体运行多久，都把记忆总量控制在固定大小：
+- 第一层（PROJECT_BRIEF.md）：冻结的参考信息，智能体永远不能修改
+- 第二层（MEMORY_LOG.md）：滚动日志，会自动压缩（compaction）
 
-Total memory budget: ~5000 chars (~1500 tokens) — always.
+记忆总预算：约 5000 字符（约 1500 token）——始终保持恒定。
 """
 
 import time
@@ -14,14 +14,13 @@ from typing import Optional
 
 
 class MemoryManager:
-    """Two-tier memory with automatic compaction.
+    """带自动压缩的两层记忆管理器。
 
-    The key insight: long-running agents accumulate context that grows
-    without bound, leading to degraded performance and ballooning costs.
-    This system caps memory at a fixed budget by:
-    - Keeping milestones (key results) in a priority queue, oldest dropped first
-    - Keeping only the N most recent decisions
-    - Never modifying the frozen project brief
+    核心思路：长时间运行的智能体会不断积累上下文，导致性能下降、成本飙升。
+    本系统通过以下方式把记忆限制在固定预算内：
+    - 把关键里程碑（重要结果）放进优先队列，最旧的优先丢弃
+    - 只保留最近 N 条决策记录
+    - 永不修改冻结的项目简报（brief）
     """
 
     def __init__(
@@ -32,69 +31,76 @@ class MemoryManager:
         milestone_max: int = 1200,
         max_recent: int = 15,
     ):
+        # 项目根目录
         self.project_dir = Path(project_dir)
+        # 第一层（冻结简报）路径
         self.brief_path = self.project_dir / "PROJECT_BRIEF.md"
+        # 第二层（滚动日志）路径
         self.log_path = self.project_dir / "workspace" / "MEMORY_LOG.md"
+        # 简报字符上限
         self.brief_max = brief_max
+        # 日志字符上限
         self.log_max = log_max
+        # 里程碑字符上限
         self.milestone_max = milestone_max
+        # 保留的最近决策条数
         self.max_recent = max_recent
 
-        # Ensure log file exists
+        # 确保日志文件存在
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.log_path.exists():
             self._init_log()
 
     def get_brief(self) -> str:
-        """Return the frozen project brief (Tier 1)."""
+        """返回冻结的项目简报（第一层）。"""
         if self.brief_path.exists():
             content = self.brief_path.read_text()
             return content[: self.brief_max]
         return ""
 
     def get_log(self) -> str:
-        """Return the rolling memory log (Tier 2)."""
+        """返回滚动记忆日志（第二层）。"""
         if self.log_path.exists():
             return self.log_path.read_text()
         return ""
 
     def get_full_context(self) -> str:
-        """Return combined memory for agent consumption."""
+        """返回供智能体使用的合并记忆上下文。"""
         brief = self.get_brief()
         log = self.get_log()
         return f"## Project Brief\n{brief}\n\n## Memory Log\n{log}"
 
     def log_milestone(self, entry: str):
-        """Add a key result milestone. Auto-compacts if over budget."""
+        """记录一条关键结果里程碑。超出预算时自动压缩。"""
         sections = self._parse_log()
         timestamp = time.strftime("%m-%d %H:%M")
         sections["milestones"].append(f"[{timestamp}] {entry}")
 
-        # Compact: drop oldest milestones if over char budget
+        # 压缩：若里程碑字符超限，则从最旧开始丢弃
         while self._section_size(sections["milestones"]) > self.milestone_max and len(sections["milestones"]) > 1:
             sections["milestones"].pop(0)
 
         self._write_log(sections)
 
     def log_decision(self, entry: str):
-        """Add a recent decision. Auto-compacts to keep only last N."""
+        """记录一条最近决策。自动压缩，只保留最近 N 条。"""
         sections = self._parse_log()
         timestamp = time.strftime("%m-%d %H:%M")
         sections["decisions"].append(f"[{timestamp}] {entry}")
 
-        # Compact: keep only last N entries
+        # 压缩：只保留最近 max_recent 条
         if len(sections["decisions"]) > self.max_recent:
             sections["decisions"] = sections["decisions"][-self.max_recent :]
 
         self._write_log(sections)
 
     def _init_log(self):
-        """Create initial empty memory log."""
+        """创建初始的空记忆日志。"""
         content = "# Memory Log\n\n## Key Results\n\n## Recent Decisions\n"
         self.log_path.write_text(content)
 
     def _parse_log(self) -> dict:
-        """Parse MEMORY_LOG.md into sections."""
+        """把 MEMORY_LOG.md 解析为分段字典。"""
         content = self.get_log()
         sections = {"milestones": [], "decisions": []}
 
@@ -111,7 +117,7 @@ class MemoryManager:
         return sections
 
     def _write_log(self, sections: dict):
-        """Write sections back to MEMORY_LOG.md."""
+        """把分段写回 MEMORY_LOG.md。"""
         lines = ["# Memory Log", "", "## Key Results"]
         for entry in sections["milestones"]:
             lines.append(entry)
@@ -123,9 +129,9 @@ class MemoryManager:
 
         content = "\n".join(lines)
 
-        # Final safety check: total log must fit budget
+        # 最终安全检查：日志总字符必须落在预算内
         if len(content) > self.log_max:
-            # Aggressive compaction: trim milestones first, then decisions
+            # 激进压缩：先砍里程碑，再砍决策
             while len(content) > self.log_max and len(sections["milestones"]) > 1:
                 sections["milestones"].pop(0)
                 content = self._build_content(sections)
@@ -136,6 +142,7 @@ class MemoryManager:
         self.log_path.write_text(content)
 
     def _build_content(self, sections: dict) -> str:
+        # 根据分段重新拼装日志文本
         lines = ["# Memory Log", "", "## Key Results"]
         lines.extend(sections["milestones"])
         lines.append("")
@@ -145,4 +152,5 @@ class MemoryManager:
         return "\n".join(lines)
 
     def _section_size(self, entries: list) -> int:
+        # 计算一段记录的总字符数
         return sum(len(e) for e in entries)

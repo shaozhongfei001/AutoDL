@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Compute stable dataset fingerprint + deterministic split (read-only)."""
+"""计算稳定的数据集指纹 + 确定性 split（只读脚本，不修改任何数据）。"""
 import hashlib
 import json
 import os
@@ -8,21 +8,25 @@ from collections import Counter
 
 import pyarrow.ipc as ipc
 
+# 数据集 Arrow 文件的本地路径（Alpaca-Cleaned）。
 ARROW_PATH = ("/home/szf/.cache/huggingface/datasets/"
               "yahma___alpaca-cleaned/default/0.0.0/"
               "12567cabf869d7c92e573c7c783905fc160e9639/alpaca-cleaned-train.arrow")
 
+# split 策略标识与划分比例（test 与 validation 各占 10%，其余为 train）。
 SPLIT_POLICY = "SPLIT-MVD-V1"
 TEST_PCT = 10
 VAL_PCT = 10
 
 
 def bucket_of(i):
+    """用行号生成一个 0..99 的确定性分桶，作为 split 的依据。"""
     h = hashlib.sha256(f"row:{i}:split:v1".encode("utf-8")).hexdigest()
     return int(h[:8], 16) % 100
 
 
 def split_name(i):
+    """根据分桶值把行归入 final-test / validation / train 三个集合。"""
     b = bucket_of(i)
     if b < TEST_PCT:
         return "final-test"
@@ -32,6 +36,7 @@ def split_name(i):
 
 
 def main():
+    # 数据集文件不存在时输出结构化错误并退出。
     if not os.path.exists(ARROW_PATH):
         print(json.dumps({"error": f"not found: {ARROW_PATH}"}))
         sys.exit(1)
@@ -47,17 +52,19 @@ def main():
     row_hashes = []
     split_of = []
     for i in range(n):
+        # 由 instruction|input|output 拼接出规范化内容并计算行级哈希。
         src = f"{instruction[i]}|{inp[i]}|{output[i]}"
         norm = " ".join(src.split())
         row_hashes.append(hashlib.sha256(norm.encode("utf-8")).hexdigest())
         split_of.append(split_name(i))
 
+    # 全局内容摘要：对所有行哈希排序后取整体 SHA-256。
     global_digest = hashlib.sha256(
         "".join(sorted(row_hashes)).encode("utf-8")).hexdigest()
 
     splits = Counter(split_of)
 
-    # duplicate groups (exact content) per split
+    # 各 split 内部的「精确重复内容组」数量（判定数据去重前的暴露度）。
     dup_by_split = {}
     for name in ("final-test", "validation", "train"):
         hashes_in_split = [h for h, s in zip(row_hashes, split_of) if s == name]
