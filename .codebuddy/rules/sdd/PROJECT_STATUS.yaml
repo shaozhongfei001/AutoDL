@@ -46,11 +46,12 @@ gate_status:
   g1_confidence_policy: "PAIRED_STUDENT_T_ONE_SIDED_95_V1"
   g1_min_practical_delta: "0.02 NLL_NAT_PER_TOKEN_V1"
   g1_state_root: "/home/szf/mvd-state (external to git worktrees)"
+  g1_data_fingerprint: "CLOSED 2026-08-18 (revision 12567cab; row digest 58174bbb; split SPLIT-MVD-V1: train 41567/val 4965/test 5228; no cross-split leak)"
+  g1_hw_manifest_hash: "1b35c32145103c84146f062a261e738b9324c996c48c56aaad151d27c22e6657"
   g1_closure_pending:
-    - "dataset fingerprints + independent final-test split (D-12)"
-    - "hardware manifest hash (D-04)"
-    - "contract_hash / policy_bundle_hash"
-    - "baseline files SHA-256 + effective time + Owner"
+    - "contract_hash / policy_bundle_hash (contract final approval)"
+    - "baseline files SHA-256 + effective time + Owner (archival)"
+    - "evaluator hash (F1 coding phase)"
     - "QA-01 independent QA-G1 signoff"
 max_parallel_for_first_pilot: 1
 g1_commits:

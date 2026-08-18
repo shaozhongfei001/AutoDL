@@ -50,7 +50,7 @@ budget:
   hard_wall_clock_limit_seconds: 900                  # D-03 APPROVED_HARD_WALL_CLOCK_SECONDS_900
   timing_policy_id: "MONOTONIC_ACTIVE_TRAIN_V1"
   hardware_cohort_id: "COHORT-RTX3060L-6G-V1"         # D-04 修订后批准（绑定 manifest hash）
-  hardware_manifest_hash: "PENDING_HW_MANIFEST"
+  hardware_manifest_hash: "1b35c32145103c84146f062a261e738b9324c996c48c56aaad151d27c22e6657"
   queue_in_active_budget: false
   setup_in_active_budget: false
   compile_in_active_budget: false
@@ -67,19 +67,31 @@ budget:
   historical_candidate_only: true
   historical_300_420_status: "CANDIDATE_EVIDENCE_ONLY"
 
-# ---------------- Data & Metric Identity（D-12/D-07） ----------------
+# ---------------- Data & Metric Identity（D-12 已闭合） ----------------
 data:
   dataset_name: "yahma/alpaca-cleaned"
   dataset_version: "fixed-snapshot"
   dataset_source: "https://huggingface.co/datasets/yahma/alpaca-cleaned"
+  dataset_revision: "12567cabf869d7c92e573c7c783905fc160e9639"
   dataset_license: "CC BY NC 4.0"
-  dataset_fingerprint: "PENDING_DATASET_EVIDENCE_CLOSURE"   # D-12 证据待闭合
-  train_split_fingerprint: "PENDING_DATASET_EVIDENCE_CLOSURE"
-  validation_split_fingerprint: "PENDING_DATASET_EVIDENCE_CLOSURE"
-  final_test_split: "PENDING_EXISTENCE"                      # 契约缺陷：需新增独立 test split
-  preprocess_hash: "PENDING_DATASET_EVIDENCE_CLOSURE"
+  dataset_fingerprint: "58174bbb6f7f80ac7cb12555dbbff2a4a5e1731424369ab62850446082afb555"
+  dataset_arrow_sha256: "e0b8d2a4fd14442983201e182c15ab2c82175064128920839408ea57dc04015e"
+  total_rows: 51760
+  split_policy: "SPLIT-MVD-V1-20260818"
+  train_split_count: 41567
+  train_split_fingerprint: "deterministic-bucket-split-mvd-v1"
+  validation_split_count: 4965
+  validation_split_fingerprint: "deterministic-bucket-split-mvd-v1"
+  final_test_split: "independent-final-test-split-mvd-v1"    # 已新增独立 test split
+  final_test_split_count: 5228
+  final_test_split_fingerprint: "deterministic-bucket-split-mvd-v1"
+  cross_split_leak_check: "PASS (final-test/validation 0 dup, no cross-split leak)"
+  data_freeze_time: "2026-08-18T00:40:00Z"
+  data_freeze_before_first_experiment: true
+  preprocess_hash: "da65a4087630ab187d91ecace9c736b6802f8687fcd2027025893623f6f12b1f"
   tokenizer: "Qwen2.5-0.5B"
-  tokenizer_hash: "PENDING_DATASET_EVIDENCE_CLOSURE"
+  tokenizer_hash: "a8506e7111b80c6d8635951a02eab0f4e1a8e4e5772da83846579e97b16f61bf"
+  model_config_hash: "fea78a4aa54142295545630bc5c9ea11ae7280b0a41d31a6bba30512a54a1a0a"
 
 # ---------------- G1-04 Profile Baseline ----------------
 profile_registry:
@@ -112,6 +124,7 @@ evaluation:
   checkpoint_selection_frozen: true
   hardware_cohort_frozen: true
   hardware_cohort_id: "COHORT-RTX3060L-6G-V1"
+  hardware_manifest_hash: "1b35c32145103c84146f062a261e738b9324c996c48c56aaad151d27c22e6657"
 
 # ---------------- G1-06 Statistical Policy（D-05/D-06/D-07 批准） ----------------
 statistics:

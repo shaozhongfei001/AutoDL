@@ -36,8 +36,9 @@ hardware_cohort:
   driver: "555.42.02"
   cuda_driver: "12.5"
   os: "Ubuntu 22.04.4 LTS"
-  manifest_hash: "PENDING_HW_MANIFEST"      # D-04 必须绑定完整硬件/软件 manifest hash
-  note: "COHORT 升级为 -V1 版本，必须绑定完整硬件/软件 manifest hash 方可生效。"
+  manifest_hash: "1b35c32145103c84146f062a261e738b9324c996c48c56aaad151d27c22e6657"  # D-04 已绑定
+  manifest_file: "specs/mvd/runtime/D04-hardware-manifest.json"
+  note: "COHORT-RTX3060L-6G-V1 已绑定完整硬件/软件 manifest hash（D04-hardware-manifest.json）。"
 
 required_time_events:
   - queue_seconds

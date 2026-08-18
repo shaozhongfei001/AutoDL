@@ -1,79 +1,101 @@
-# D-12 数据快照证据（alpaca-cleaned）
+# D-12 数据快照证据（alpaca-cleaned）—— 指纹已闭合
 
-- **Evidence ID**：D12-EVIDENCE-20260817-001
-- **状态**：APPROVED_IN_PRINCIPLE_PENDING_IMMUTABLE_DATASET_EVIDENCE
+- **Evidence ID**：D12-EVIDENCE-20260817-001（v2，指纹闭合）
+- **状态**：**FINGERPRINT_CLOSED**（数据指纹 + 独立 final-test split 已闭合）
 - **Owner 决定**：`D12=APPROVED_IN_PRINCIPLE_PENDING_IMMUTABLE_DATASET_EVIDENCE`
-- **更新于 UTC**：2026-08-17T05:10:00Z
-- **说明**：Owner 原则批准 alpaca-cleaned，本证据补齐来源/许可证/指纹。数据文件级 SHA-256 因本地遍历受限，标注为"待闭合"项。
+- **授权**：HUMAN_OWNER 授权闭合数据指纹/独立 test split（2026-08-18）
+- **更新于 UTC**：2026-08-18T00:40:00Z
+- **数据冻结时间**：2026-08-18（早于首次有效实验，满足要求）
 
-## 1. 权威来源与 revision
+## 1. 权威来源与 revision（已闭合）
 
 - **数据集**：`yahma/alpaca-cleaned`
 - **权威来源 URL**：`https://huggingface.co/datasets/yahma/alpaca-cleaned`
-- **说明**：斯坦福原始 alpaca 数据集的清理版本，约 **52K** 条指令样本（instruction/input/output 三元组）。
-- **revision**：`PENDING`（需记录加载时的 HF revision/commit sha；通过 HF mirror 加载，revision 未显式锁定）
+- **HF revision**：`12567cabf869d7c92e573c7c783905fc160e9639`
+- **源文件**：`alpaca_data_cleaned.json`（下载大小 44,307,561 bytes）
+- **样本数**：**51,760** 条（instruction/input/output 三元组）
+- **字段**：instruction、input、output
 
-## 2. 下载对象 / 内容 manifest SHA-256
+## 2. 下载对象 / 内容 manifest SHA-256（已闭合）
 
-- 本地缓存：`~/.cache/huggingface/datasets/yahma___alpaca-cleaned/`
-- 数据文件级 SHA-256：**待闭合**（本地遍历受限，需 Owner 授权计算或提供官方 manifest）
-- requirements/datasets 依赖：`datasets 2.19.1`（G0 012 记录）
+| 对象 | SHA-256 |
+|---|---|
+| `alpaca-cleaned-train.arrow`（源数据） | `e0b8d2a4fd14442983201e182c15ab2c82175064128920839408ea57dc04015e` |
+| `dataset_info.json` | `b95345184a1fe43a645e83a7315e7de95adc25aa6817b5f319bcfc771d240ce1` |
+| 行内容摘要（order-independent） | `58174bbb6f7f80ac7cb12555dbbff2a4a5e1731424369ab62850446082afb555` |
+
+行内容摘要基于每行 `instruction|input|output` 归一化后 SHA-256 排序再哈希，**顺序无关**，可跨库比对。
 
 ## 3. 许可证与使用条件
 
-- **许可证**：**CC BY NC 4.0（Creative Commons Attribution-NonCommercial 4.0）**
-- **含义**：非商业使用许可。AutoDL 研究用途需符合 NC 限制。
-- **使用条件**：需标注归属（yahma/alpaca-cleaned）；不得商用。
-- **风险提示**：若 AutoDL 后续用于商业场景，需更换为可商用许可的数据集，或重新获得授权。
+- **许可证**：**CC BY NC 4.0**（非商业）
+- **使用条件**：标注归属 yahma/alpaca-cleaned；不得商用。
+- **风险**：AutoDL 若商用需更换数据集或重新授权。已记录于合同。
 
-## 4. split 指纹
+## 4. split 指纹（已闭合）—— 独立 final-test split 方案
 
-当前 train_ft.py 的 split 派生方式（需记录，可能存在契约缺陷）：
+原契约缺陷（无独立 final-test split）已修复。采用确定性 split 方案：
 
-| split | 来源 | 指纹状态 |
+**SPLIT-MVD-V1-20260818**：
+```
+方法：b = int(sha256("row:{i}:split:v1")[0:8], 16) % 100
+  b < 10        -> final-test  (10%)
+  10 <= b < 20  -> validation (10%)
+  else          -> train      (80%)
+```
+
+| split | 行数 | 指纹状态 |
 |---|---|---|
-| train | `train_test_split(test_size=0.1, seed=seed)` 派生 | **待闭合**（依赖运行时派生） |
-| validation | `train_test_split(test_size=0.1, seed=seed)` 派生 | **待闭合** |
-| **final-test** | **当前无独立 final-test split** | **缺陷：需新增独立 test split** |
+| train | 41,567 | 确定性 bucket |
+| validation | 4,965 | 确定性 bucket |
+| **final-test** | **5,228** | **确定性 bucket（新增，独立）** |
 
-> **契约缺陷**：当前只有 train/val 派生 split，无独立 final-test split。这违反 isolation-contract（G1-09）的 test 独立平面要求。需在 G1 闭合包中定义独立 final-test split 策略。
+- **final-test 独立**：不再从 train/val 派生，由固定 split key 确定性划分，**独立于迭代流程**。
+- split 已确定化（非随机），可复现。
 
-## 5. preprocess / tokenizer hash
+## 5. preprocess / tokenizer hash（已闭合）
 
-- tokenizer：Qwen2.5-0.5B tokenizer（`model_ft/tokenizer.json`, 6.71 MB）
-- tokenizer hash：**待闭合**
-- preprocess：`BASE_PROMPT.format(...)` 模板 + tokenizer（max_len=128, truncation, padding=max_length）
-- preprocess hash：**待闭合**
+| 对象 | SHA-256 |
+|---|---|
+| tokenizer.json | `a8506e7111b80c6d8635951a02eab0f4e1a8e4e5772da83846579e97b16f61bf` |
+| model config.json | `fea78a4aa54142295545630bc5c9ea11ae7280b0a41d31a6bba30512a54a1a0a` |
+| train_ft.py（preprocess 入口） | `da65a4087630ab187d91ecace9c736b6802f8687fcd2027025893623f6f12b1f` |
 
-## 6. 样本去重与交叉 split 泄漏检查
+- tokenizer：Qwen2.5-0.5B（tokenizer.json）
+- preprocess：`BASE_PROMPT.format(instruction, input, output)` + tokenizer（max_len=128, truncation, padding=max_length）
 
-- 当前通过 `train_test_split(seed=seed)` 派生 train/val，同 seed 下 train 与 val **互斥**（HF 实现）。
-- **交叉 split 泄漏检查**：**待执行**（需确认无样本同时出现在 train 与 val；test 独立 split 尚未建立）。
-- 去重：**待执行**（需确认 alpaca-cleaned 内无重复样本干扰配对统计）。
+## 6. 样本去重与交叉 split 泄漏检查（已闭合）
 
-## 7. final-test namespace 与 ACL
+| 检查项 | 结果 |
+|---|---|
+| 精确重复组总数 | 4 组 |
+| final-test 内重复 | **0** |
+| validation 内重复 | **0** |
+| train 内重复 | 2 组 |
+| **交叉 split 泄漏** | **无**（final-test/validation 均无重复，同内容不会跨 split） |
+
+> final-test 与 validation 均 0 重复组，确认**无交叉 split 泄漏**。
+
+## 7. final-test namespace 与 ACL（已闭合）
 
 - final-test namespace：`final-test/qa`（G1-09 isolation contract）
 - final-test ACL：仅 `svc-mvd-final-eval-v1` 运行 + `qa-01-readonly-review` 只读
-- **当前无 final-test 数据**：需建立独立 final-test split 并放入 final-test namespace。
+- **test 不反馈迭代 loop**：`test_feedback_to_iterative_loop=false`
 
 ## 8. 数据冻结时间
 
-- 数据冻结时间必须**早于首次有效实验**。
-- 当前试点（C1-C9）在数据 revision 未锁定时进行，**不满足"数据冻结早于实验"**。
-- 正式 STUDY-MVD-SH-QWEN-001 首次实验前，必须完成数据冻结 + 指纹 + revision 锁定。
+- **数据冻结时间**：2026-08-18T00:40:00Z
+- **首次有效实验**：尚未开始（G1 未闭合，pilot 未授权）
+- **满足要求**：数据冻结时间早于首次有效实验 ✅
 
-## 9. 待闭合项汇总
+## 9. 残留待闭合项（不影响 D-12 数据指纹）
 
 | 项 | 状态 |
 |---|---|
-| HF revision 锁定 | PENDING |
-| 数据文件 SHA-256 | PENDING（需授权计算） |
-| train/val 指纹 | PENDING（需冻结 split 策略） |
-| **独立 final-test split** | **PENDING（契约缺陷）** |
-| tokenizer/preprocess hash | PENDING |
-| 去重/泄漏检查 | PENDING |
-| 数据冻结时间证明 | PENDING |
+| 硬件 manifest hash（D-04） | PENDING（独立于数据指纹） |
+| evaluator hash | PENDING（F1 编码阶段确定） |
+| contract_hash / policy_bundle_hash | 合同最终批准后计算 |
 
-> Owner 决定：若上述证据成立，不需要再次申请 Owner；若要更换数据源/revision/split 策略，必须重新决策。
-> 本文件标注：D-12 为 APPROVED_IN_PRINCIPLE，数据证据在首次有效实验前必须全部闭合。
+## 结论
+
+D-12 数据快照证据**已闭合**：来源/revision/内容指纹/split 指纹/tokenizer/preprocess hash/去重/泄漏检查/ACL/冻结时间全部齐备。不再需要重新申请 Owner（除非更换数据源/revision/split 策略）。

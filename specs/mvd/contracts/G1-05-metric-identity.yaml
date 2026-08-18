@@ -46,7 +46,7 @@ hardware_cohort:
   cohort_id: "COHORT-RTX3060L-6G-V1"        # D-04
   accelerator: "NVIDIA GeForce RTX 3060 Laptop GPU"
   count: 1
-  manifest_hash: "PENDING_HW_MANIFEST"
+  manifest_hash: "1b35c32145103c84146f062a261e738b9324c996c48c56aaad151d27c22e6657"
   comparability_requires_exact_cohort: true
 
 identity_freeze_declaration:

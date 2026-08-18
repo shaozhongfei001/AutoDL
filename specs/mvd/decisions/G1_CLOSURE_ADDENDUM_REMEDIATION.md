@@ -47,19 +47,20 @@
 
 ## 待闭合项（QA-G1 触发前必须闭合）
 
-1. **D-04** hardware manifest hash（PENDING_HW_MANIFEST）——绑定完整硬件/软件 manifest。
-2. **D-07/D-12** dataset 指纹、tokenizer/preprocess hash、evaluator hash、**独立 final-test split**（契约缺陷）。
+1. **D-04** hardware manifest hash —— **已闭合**（`1b35c321...`，见 D04-hardware-manifest.json，2026-08-18）。
+2. **D-12** dataset 指纹、tokenizer/preprocess hash、**独立 final-test split** —— **已闭合**（见 D12-dataset-snapshot-evidence.md v2，2026-08-18）。
 3. **D-08** 约束阈值已冻结（无需再改），但需机器验证 expected==actual。
 4. **D-10** G2 需把逻辑 principal 映射到 OS/service identity + ACL。
 5. contract_hash / policy_bundle_hash 需在合同最终批准后计算。
 6. 所有基线文件需版本化 + SHA-256 + 生效时间 + Owner（归档后计算）。
+7. **evaluator hash** —— 待 F1 编码阶段确定（非 G1 阻塞）。
 
 ## QA-G1 触发条件
 
 以下全部闭合后才授权触发独立 QA-G1（`QA_G1_TRIGGER_AUTHORIZED=YES`）：
-- [ ] 六项整改交付全部提交（本包）
-- [ ] 数据指纹/独立 final-test split 闭合
-- [ ] hardware manifest hash 绑定
-- [ ] 合同正式冻结 + SHA-256 归档
+- [x] 六项整改交付全部提交（本包）
+- [x] 数据指纹/独立 final-test split 闭合（D-12，2026-08-18）
+- [x] hardware manifest hash 绑定（D-04，2026-08-18）
+- [x] PROJECT_STATUS.yaml 记录完整 40 位 SHA
+- [ ] 合同正式冻结 + SHA-256 归档（contract_hash/policy_bundle_hash）
 - [ ] QA-01 独立签署 QA-G1=PASS
-- [ ] PROJECT_STATUS.yaml 记录完整 40 位 SHA
