@@ -333,7 +333,7 @@ Agent 很乐意替你跑实验。但请把 *想法*、*解读* 与 *科学判断
     ┌──────────┐ ┌──────────┐ ┌──────────┐
     │   Idea   │ │   Code   │ │ Writing  │
     │  Agent   │ │  Agent   │ │  Agent   │
-    │ (4 tools)│ │ (5 tools)│ │ (3 tools)│
+    │ (5 tools)│ │ (7 tools)│ │ (4 tools)│
     └──────────┘ └──────────┘ └──────────┘
 ```
 
@@ -363,7 +363,7 @@ Agent 很乐意替你跑实验。但请把 *想法*、*解读* 与 *科学判断
 | 2 | 两层记忆自动压缩 | 固定上下文窗口 |
 | 3 | Leader 会话在周期内持久 | 每周期只发一次 brief |
 | 4 | Anthropic 提示缓存 | 系统/工具缓存 |
-| 5 | 每 Agent 最小工具集（3-5） | 更少 schema 开销 |
+| 5 | 每 Agent 最小工具集（4-7，按需） | 更少 schema 开销 |
 | 6 | 精简系统提示 | 更少输入 token |
 | 7 | 发送前裁剪状态 | 无冗余 |
 | 8 | 同一时刻单个 Worker | 无并行 LLM 成本 |
@@ -773,6 +773,8 @@ python install.py --uninstall
 ```yaml
 agent:
   # 按 token 付费（需要 API key）：
+  # 注：本仓库实际默认已按国产模型定制（provider=openai + Qwen3.6 + 自建 endpoint，
+  #     见 config.yaml）；下面是通用示例，按需覆盖即可。
   provider: "anthropic"           # 或 "openai"
   model: "claude-sonnet-4-6"      # 或 "codex-5.3"
   base_url: ""                    # 可选兼容端点覆盖
