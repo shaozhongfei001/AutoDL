@@ -963,42 +963,7 @@ AutoDL/
 
 参见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
----
 
-## 引用
-
-若你觉得本工作有用，请引用我们的论文：
-
-```bibtex
-@article{zhang2026autodeepresearcher,
-  title={Deep Researcher Agent: Autonomous Deep Learning Experiment Framework},
-  author={Zhang, Xiangyue},
-  journal={arXiv preprint arXiv:2604.05854},
-  year={2026},
-  url={https://arxiv.org/abs/2604.05854}
-}
-```
-
-或引用软件发布：
-
-```bibtex
-@software{auto_deep_researcher_24x7,
-  title={Deep Researcher Agent: Autonomous Deep Learning Experiment Framework},
-  author={Xiangyue Zhang},
-  year={2026},
-  url={https://github.com/shaozhongfei001/AutoDL}
-}
-```
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=shaozhongfei001/AutoDL&type=Date&v=20260408-1)](https://www.star-history.com/#shaozhongfei001/AutoDL&Date)
-
-## License
-
-Apache 2.0 — 见 [LICENSE](LICENSE)。
-
----
 
 <p align="center">
   <strong><i>"实验彻夜运行，结果拂晓而至。"</i></strong>
