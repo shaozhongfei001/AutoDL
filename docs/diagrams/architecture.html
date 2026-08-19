@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AutoDL 架构图</title>
+<style>
+  :root{
+    --paper:#fbfaf7; --ink:#1c1b19; --muted:#6b6862; --line:#d9d5cc;
+    --accent:#e8612c; --accent-soft:#fbe7dd; --link:#2f6fb0; --ok:#2e8b57;
+    --box:#f3f0e9; --box2:#fbf2ea; --box3:#eef3f8;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:"Segoe UI",-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 24px 48px;}
+  h1{font-size:24px;margin:0 0 4px;letter-spacing:.5px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+  svg{width:100%;height:auto;display:block;}
+  .node rect{fill:var(--box);stroke:var(--line);stroke-width:1.4;}
+  .node.acc rect{fill:var(--accent-soft);stroke:var(--accent);}
+  .node.blue rect{fill:var(--box3);stroke:#bcd2e6;}
+  .node.green rect{fill:#eaf4ee;stroke:#b7d8c2;}
+  .node text{font-size:13px;fill:var(--ink);}
+  .node .t2{font-size:10.5px;fill:var(--muted);}
+  .edge{fill:none;stroke:var(--line);stroke-width:1.5;}
+  .edge.acc{stroke:var(--accent);}
+  .edge.link{stroke:var(--link);stroke-dasharray:4 3;}
+  .lbl{font-size:10.5px;fill:var(--muted);}
+  .grp{fill:none;stroke:var(--line);stroke-dasharray:5 4;stroke-width:1.3;}
+  .grp-t{font-size:12px;fill:var(--muted);font-weight:600;}
+  .legend{margin-top:18px;display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--muted);}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}
+  .sw{width:14px;height:14px;border:1.4px solid var(--line);border-radius:3px;display:inline-block;}
+  .sw.acc{background:var(--accent-soft);border-color:var(--accent);}
+  .sw.blue{background:var(--box3);border-color:#bcd2e6;}
+  .sw.green{background:#eaf4ee;border-color:#b7d8c2;}
+  .sw.link{background:repeating-linear-gradient(90deg,var(--link) 0 4px,transparent 4px 7px);border:none;height:3px;width:18px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AutoDL 自主深度学习研究系统 — 架构图</h1>
+  <div class="sub">多智能体编排 + 隔离工作流 + 多后端执行 + 持久账本的记忆与治理闭环</div>
+
+  <svg viewBox="0 0 1040 760" role="img" aria-label="AutoDL architecture diagram">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="var(--line)"/>
+      </marker>
+      <marker id="arrow-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/>
+      </marker>
+      <marker id="arrow-link" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="var(--link)"/>
+      </marker>
+    </defs>
+    <!-- ===== Group: Control Plane ===== -->
+    <rect class="grp" x="20" y="50" width="1000" height="250" rx="10"/>
+    <text class="grp-t" x="36" y="44">控制面 (Control Plane) — core/loop.py + agents.py</text>
+
+    <!-- Leader  rect: x48 y92 w180 h68  → right edge x228, cy=126 -->
+    <g class="node acc">
+      <rect x="48" y="92" width="180" height="68" rx="8"/>
+      <text x="138" y="118" text-anchor="middle" font-weight="700">Leader（编排者）</text>
+      <text class="t2" x="138" y="138" text-anchor="middle">读账本→写 THINK→调度 Code Agent</text>
+    </g>
+
+    <!-- Dispatcher  rect: x300 y100 w150 h52 → left x300 cy=126 right x450 -->
+    <g class="node">
+      <rect x="300" y="100" width="150" height="52" rx="8"/>
+      <text x="375" y="124" text-anchor="middle" font-weight="600">Dispatcher</text>
+      <text class="t2" x="375" y="142" text-anchor="middle">并行度/队列/PID 追踪</text>
+    </g>
+
+    <!-- Idea Agent  rect: x500 y78 w150 h52 → left x500 cy=104 -->
+    <g class="node blue">
+      <rect x="500" y="78" width="150" height="52" rx="8"/>
+      <text x="575" y="102" text-anchor="middle" font-weight="600">Idea Agent</text>
+      <text class="t2" x="575" y="120" text-anchor="middle">文献检索 / 假设</text>
+    </g>
+    <!-- Code Agent  rect: x500 y142 w150 h52 → left x500 cy=168 -->
+    <g class="node blue">
+      <rect x="500" y="142" width="150" height="52" rx="8"/>
+      <text x="575" y="166" text-anchor="middle" font-weight="600">Code Agent</text>
+      <text class="t2" x="575" y="184" text-anchor="middle">改代码 / 启动实验</text>
+    </g>
+    <!-- Writing Agent  rect: x500 y206 w150 h46 → left x500 cy=229 -->
+    <g class="node blue">
+      <rect x="500" y="206" width="150" height="46" rx="8"/>
+      <text x="575" y="230" text-anchor="middle" font-weight="600">Writing Agent</text>
+      <text class="t2" x="575" y="246" text-anchor="middle">产出论文 / 报告</text>
+    </g>
+
+    <!-- ToolRegistry  rect: x708 y120 w150 h60 → left x708 cy=150 right x858 -->
+    <g class="node">
+      <rect x="708" y="120" width="150" height="60" rx="8"/>
+      <text x="783" y="144" text-anchor="middle" font-weight="600">ToolRegistry</text>
+      <text class="t2" x="783" y="162" text-anchor="middle">每 Agent 最小工具集</text>
+      <text class="t2" x="783" y="176" text-anchor="middle">受保护写边界</text>
+    </g>
+
+    <!-- Memory + Ledger  rect: x708 y200 w150 h60 → top y200 bottom y260 left x708 -->
+    <g class="node green">
+      <rect x="708" y="200" width="150" height="60" rx="8"/>
+      <text x="783" y="224" text-anchor="middle" font-weight="600">记忆 + 账本</text>
+      <text class="t2" x="783" y="242" text-anchor="middle">PROJECT_BRIEF / MEMORY_LOG</text>
+    </g>
+
+    <!-- ===== Group: Execution Plane ===== -->
+    <rect class="grp" x="20" y="330" width="1000" height="180" rx="10"/>
+    <text class="grp-t" x="36" y="324">执行面 (Execution Plane) — execution.py</text>
+
+    <!-- ExecutionBackend  rect: x48 y372 w170 h56 → top y372 right x218 bottom y428 -->
+    <g class="node">
+      <rect x="48" y="372" width="170" height="56" rx="8"/>
+      <text x="133" y="395" text-anchor="middle" font-weight="600">ExecutionBackend</text>
+      <text class="t2" x="133" y="413" text-anchor="middle">local / ssh / slurm 三态</text>
+    </g>
+
+    <!-- local  rect: x270 y356 w150 h48 → top y356 bottom y404 left x270 right x420 -->
+    <g class="node">
+      <rect x="270" y="356" width="150" height="48" rx="8"/>
+      <text x="345" y="380" text-anchor="middle" font-weight="600">local 后端</text>
+      <text class="t2" x="345" y="396" text-anchor="middle">subprocess + nohup 日志</text>
+    </g>
+    <!-- ssh  rect: x270 y416 w150 h48 → top y416 bottom y464 left x270 right x420 -->
+    <g class="node">
+      <rect x="270" y="416" width="150" height="48" rx="8"/>
+      <text x="345" y="440" text-anchor="middle" font-weight="600">ssh 后端</text>
+      <text class="t2" x="345" y="456" text-anchor="middle">远程训练节点</text>
+    </g>
+    <!-- slurm  rect: x452 y386 w150 h48 → top y386 bottom y434 left x452 right x602 -->
+    <g class="node">
+      <rect x="452" y="386" width="150" height="48" rx="8"/>
+      <text x="527" y="410" text-anchor="middle" font-weight="600">slurm 后端</text>
+      <text class="t2" x="527" y="426" text-anchor="middle">sbatch + sacct 探针</text>
+    </g>
+
+    <!-- GPU  rect: x650 y360 w170 h100 → top y360 bottom y460 left x650 right x820 cy=410 -->
+    <g class="node acc">
+      <rect x="650" y="360" width="170" height="100" rx="8"/>
+      <text x="735" y="384" text-anchor="middle" font-weight="700">GPU 子系统</text>
+      <text class="t2" x="735" y="404" text-anchor="middle">detect.py: nvidia-smi 探测</text>
+      <text class="t2" x="735" y="420" text-anchor="middle">get_free_gpus 选卡</text>
+      <text class="t2" x="735" y="436" text-anchor="middle">keeper.py: 保活/保留末卡</text>
+    </g>
+
+    <!-- Monitor  rect: x860 y386 w130 h48 → left x860 right x990 cy=410 -->
+    <g class="node">
+      <rect x="860" y="386" width="130" height="48" rx="8"/>
+      <text x="925" y="410" text-anchor="middle" font-weight="600">Monitor</text>
+      <text class="t2" x="925" y="426" text-anchor="middle">进度/停滞 检测</text>
+    </g>
+
+    <!-- ===== Group: Data & Governance ===== -->
+    <rect class="grp" x="20" y="540" width="1000" height="180" rx="10"/>
+    <text class="grp-t" x="36" y="534">数据面与治理 (Data &amp; Governance)</text>
+
+    <!-- workspace  rect: x48 y582 w200 h72 → top y582 bottom y654 right x248 -->
+    <g class="node">
+      <rect x="48" y="582" width="200" height="72" rx="8"/>
+      <text x="148" y="606" text-anchor="middle" font-weight="600">workspace/ (实验沙盒)</text>
+      <text class="t2" x="148" y="624" text-anchor="middle">state.json · experiments.jsonl</text>
+      <text class="t2" x="148" y="640" text-anchor="middle">candidate/ champion/ 分支</text>
+    </g>
+
+    <!-- ExperimentContract  rect: x300 y582 w200 h72 → left x300 right x500 -->
+    <g class="node">
+      <rect x="300" y="582" width="200" height="72" rx="8"/>
+      <text x="400" y="606" text-anchor="middle" font-weight="600">ExperimentContract</text>
+      <text class="t2" x="400" y="624" text-anchor="middle">预算契约 / 写保护策略</text>
+      <text class="t2" x="400" y="640" text-anchor="middle">版本化 Git SHA 升级</text>
+    </g>
+
+    <!-- Git  rect: x552 y582 w200 h72 → left x552 right x752 -->
+    <g class="node green">
+      <rect x="552" y="582" width="200" height="72" rx="8"/>
+      <text x="652" y="606" text-anchor="middle" font-weight="600">Git 仓库</text>
+      <text class="t2" x="652" y="624" text-anchor="middle">champion_before/after_sha</text>
+      <text class="t2" x="652" y="640" text-anchor="middle">candidate_sha 溯源</text>
+    </g>
+
+    <!-- Snapshot  rect: x804 y582 w170 h72 → left x804 -->
+    <g class="node blue">
+      <rect x="804" y="582" width="170" height="72" rx="8"/>
+      <text x="889" y="606" text-anchor="middle" font-weight="600">快照 / 知识沉淀</text>
+      <text class="t2" x="889" y="624" text-anchor="middle">snapshots.py 导出</text>
+      <text class="t2" x="889" y="640" text-anchor="middle">evidence/ contracts/</text>
+    </g>
+
+    <!-- ===================== EDGES (edge-snapped, with arrows) ===================== -->
+    <!-- Leader(right x228,cy126) -> Dispatcher(left x300,cy126) -->
+    <path class="edge acc" marker-end="url(#arrow-acc)" d="M228 126 L296 126"/>
+    <!-- Dispatcher(right x450,cy126) -> Idea(left x500,cy104) -->
+    <path class="edge" marker-end="url(#arrow)" d="M450 126 L470 126 L470 104 L496 104"/>
+    <!-- Dispatcher(right x450,cy126) -> Code(left x500,cy168) -->
+    <path class="edge" marker-end="url(#arrow)" d="M450 126 L470 126 L470 168 L496 168"/>
+    <!-- Dispatcher(right x450,cy126) -> Writing(left x500,cy229) -->
+    <path class="edge" marker-end="url(#arrow)" d="M450 126 L470 126 L470 229 L496 229"/>
+    <!-- Dispatcher -> ToolRegistry : 走 y70 高位，避开 Idea Agent -->
+    <path class="edge" marker-end="url(#arrow)" d="M450 126 L450 70 L704 70 L704 150"/>
+    <!-- ToolRegistry(bottom y180) -> Memory+Ledger(top y200) -->
+    <path class="edge link" marker-end="url(#arrow-link)" d="M783 180 L783 196"/>
+
+    <!-- Dispatcher(bottom y152) -> ExecutionBackend(top y372) -->
+    <path class="edge" marker-end="url(#arrow)" d="M375 152 L375 260 L133 260 L133 368"/>
+    <!-- Dispatcher -> local(top y356) -->
+    <path class="edge" marker-end="url(#arrow)" d="M375 152 L375 260 L345 260 L345 352"/>
+    <!-- slurm(top y386) -> GPU(top y360) : 走 slurm 上方 y370，不穿节点 -->
+    <path class="edge" marker-end="url(#arrow)" d="M527 386 L527 370 L646 370"/>
+    <!-- local/ssh feed GPU : 走 slurm 下方 y450，垂直段 x440 在 slurm 左缘外 -->
+    <path class="edge" marker-end="url(#arrow)" d="M420 380 L440 380 L440 450 L646 450"/>
+    <path class="edge" marker-end="url(#arrow)" d="M420 440 L440 440 L440 450 L646 450"/>
+    <!-- GPU(right x820,cy410) -> Monitor(left x860,cy410) -->
+    <path class="edge" marker-end="url(#arrow)" d="M820 410 L856 410"/>
+    <!-- Monitor observes GPU (async) -->
+    <path class="edge link" marker-end="url(#arrow-link)" d="M860 398 L824 398"/>
+
+    <!-- workspace(right x248,cy618) -> ExperimentContract(left x300,cy618) -->
+    <path class="edge" marker-end="url(#arrow)" d="M248 618 L296 618"/>
+    <!-- workspace(right x248,cy400) -> ExecutionBackend(left x218,cy400) : read state -->
+    <path class="edge link" marker-end="url(#arrow-link)" d="M248 400 L222 400"/>
+    <!-- ExperimentContract(right x500,cy618) -> Git(left x552,cy618) -->
+    <path class="edge" marker-end="url(#arrow)" d="M500 618 L548 618"/>
+    <!-- Git(right x752,cy618) -> Snapshot(left x804,cy618) -->
+    <path class="edge link" marker-end="url(#arrow-link)" d="M752 618 L800 618"/>
+  </svg>
+
+  <div class="legend">
+    <span><i class="sw acc"></i>编排/关键路径</span>
+    <span><i class="sw blue"></i>智能体 / 知识</span>
+    <span><i class="sw green"></i>记忆 / 版本控制</span>
+    <span><i class="sw link"></i>只读 / 异步观测</span>
+  </div>
+</div>
+</body>
+</html>

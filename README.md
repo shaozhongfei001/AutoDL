@@ -1,25 +1,21 @@
+> **设计来源**
+> 这是从零开始的独立设计。深度借鉴参考 `autoresearcher` 项目的思路，不隶属于任何外部源码仓库。
 
-
-> **Design provenance**
-> This is a from-scratch design. It shares no provenance with the original
-> `autoresearcher` project and is not affiliated with any external source
-> repository.
-
-<h1 align="center">Deep Learning Researcher Agent</h1>
-<h3 align="center">24/7 Autonomous Deep Learning Experiment Agent</h3>
+<h1 align="center">深度AI建模训练</h1>
+<h3 align="center"> 自主深度学习实验 </h3>
 
 <p align="center">
-  <strong>An AI agent that autonomously runs your deep learning experiments 24/7 while you sleep.</strong>
+  <strong>在你休息时，由 AI Agent 自主运行你的深度学习实验。</strong>
 </p>
 
 <p align="center">
   <a href="README.md">English</a> |
-  <a href="docs/README_CN.md">中文</a> |
+  <a href="docs/README_CN.md">中文</a>
 </p>
 
 <p align="center">
-  <a href="#quickstart"><img src="https://img.shields.io/badge/-Quick_Start-blue?style=for-the-badge" alt="Quick Start"/></a>
-  <a href="docs/architecture.md"><img src="https://img.shields.io/badge/-Architecture-orange?style=for-the-badge" alt="Architecture"/></a>
+  <a href="#快速开始"><img src="https://img.shields.io/badge/-快速开始-blue?style=for-the-badge" alt="快速开始"/></a>
+  <a href="#架构"><img src="https://img.shields.io/badge/-架构-orange?style=for-the-badge" alt="架构"/></a>
 </p>
 
 <p align="center">
@@ -31,126 +27,91 @@
 </p>
 
 <p align="center">
-  <a href="https://arxiv.org/abs/2604.05854"><img src="https://img.shields.io/badge/Technical%20Report-2604.05854-b31b1b.svg" alt="Technical Report"/></a>
+  <a href="https://arxiv.org/abs/2604.05854"><img src="https://img.shields.io/badge/技术报告-2604.05854-b31b1b.svg" alt="技术报告"/></a>
 </p>
 
 ---
 
-## Recent Updates
+## 近期更新
 
-**2026-06-03 — Domestic LLM API presets**
+**2026-06-03 — 国产 LLM API 预设**
 
-- Run the agent on a **Chinese LLM API instead of a Claude/Codex subscription** by
-  setting `agent.provider` to a one-word preset — `deepseek`, `qwen` (`dashscope`),
-  `kimi` (`moonshot`), or `glm` (`zhipu`). The preset auto-fills the OpenAI-compatible
-  `base_url` and the default key env (`DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY` /
-  `MOONSHOT_API_KEY` / `ZHIPUAI_API_KEY`); you just set `model` to that vendor's model
-  id. `base_url` / `api_key_env` stay overridable for self-hosted or proxied endpoints.
-  This is a thin alias over the existing OpenAI-compatible path — no new dependency.
-  (`core/agents.py`)
+- 通过把 `agent.provider` 设为一个单词预设（`deepseek`、`qwen`(`dashscope`)、`kimi`(`moonshot`)、`glm`(`zhipu`)），即可改用**中文 LLM API** 而非 Claude/Codex 订阅。预设会自动填充 OpenAI 兼容的 `base_url` 与默认 key 环境变量（`DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY` / `MOONSHOT_API_KEY` / `ZHIPUAI_API_KEY`）；你只需把 `model` 设为该厂商的模型 id。`base_url` / `api_key_env` 仍可覆盖以支持自建或代理端点。这只是对既有 OpenAI 兼容路径的一层薄别名，无新增依赖。（`core/agents.py`）
 
   ```yaml
   agent:
-    provider: "deepseek"      # or qwen / kimi / glm
-    model: "deepseek-chat"    # vendor's model id
+    provider: "deepseek"      # 或 qwen / kimi / glm
+    model: "deepseek-chat"    # 厂商模型 id
   ```
 
-**2026-06-02 — Slurm execution backend + truthful experiment outcomes**
+**2026-06-02 — Slurm 执行后端 + 真实实验结果**
 
-- **Slurm execution backend** — added `execution.mode: "slurm"` so the agent can
-  drive experiments on a Slurm cluster. The controller stays local; training is
-  submitted to the login node with `sbatch --parsable` over a single transient
-  SSH call that exits immediately — **no process is ever left running on the
-  login node**. `sacct` is the sole liveness authority (Slurm enforces `--time`),
-  GPU status is read from the partition's `squeue` occupancy, and two bounds
-  inside the liveness check (consecutive-unknown grace + a `--time`-derived
-  wall-clock backstop) guarantee the monitor loop terminates even if the cluster
-  goes unreachable — without ever reaping a job `sacct` still reports as queued
-  or running. File and repo-reading ops reuse the SSH path (the login node shares
-  the NFS workspace). (`core/execution.py`)
-- **Truthful experiment outcomes** — the monitor now asks the backend for a
-  finished job's real terminal state via `final_status()`, so a `FAILED` /
-  `TIMEOUT` / `CANCELLED` run is no longer silently recorded as `completed`. The
-  outcome flows into `state.json`, the experiment ledger, and the REFLECT
-  context, so the agent reasons over what actually happened. On Slurm the state
-  comes from `sacct`; pid-only backends (`local`/`ssh`) report it as
-  indeterminate and keep prior behavior. (`core/monitor.py`, `core/loop.py`)
-- Additive and opt-in; `local`/`ssh` behavior is unchanged. (+21 unit tests, no
-  cluster required.)
+- **Slurm 执行后端**：新增 `execution.mode: "slurm"`，使 Agent 能在 Slurm 集群上驱动实验。控制器保持在本地；训练通过**一次瞬时 SSH 调用**用 `sbatch --parsable` 提交到登录节点并立即退出——**绝不在登录节点留下持久进程**。`sacct` 是唯一存活权威（Slurm 强制 `--time`），GPU 状态通过分区 `squeue` 占用读取；存活检测内置两道边界（连续 unknown 宽限 + 由 `--time` 派生的挂钟兜底），保证即使集群不可达，monitor 循环也能终止——同时绝不回收 `sacct` 仍报告为排队/运行中的任务。文件与仓库阅读操作复用 SSH 路径（登录节点与控制器共享 NFS 工作区）。（`core/execution.py`）
+- **真实实验结果**：monitor 现在通过 `final_status()` 向后端询问已完成任务的真实终态，因此 `FAILED` / `TIMEOUT` / `CANCELLED` 的运行不再被静默记为 `completed`。结果流入 `state.json`、实验账本与 REFLECT 上下文，使 Agent 基于真实发生的情况推理。Slurm 上状态来自 `sacct`；仅靠 PID 的后端（`local`/`ssh`）报告为不确定并保留原行为。（`core/monitor.py`、`core/loop.py`）
+- 增量且可选开启；`local`/`ssh` 行为不变。（+21 单元测试，无需集群。）
 
-**2026-06-01 — v2.0 (major update)**
+**2026-06-01 — v2.0（重大更新）**
 
-This release gives the agent (a) a persistent, queryable memory of its own
-experiments, (b) explicit progress/quality/safety signals derived from that
-memory, and (c) much stronger code- and literature-reading tools. Every change
-is additive and backward-compatible — existing projects keep working unchanged,
-the new gate and rate limit are opt-in, and the whole suite is unit-tested
-without a GPU or network (60 → 99 tests).
+此次发布给 Agent 带来 (a) 对其自身实验的持久、可查询记忆，(b) 由该记忆派生的显式进度/质量/安全信号，以及 (c) 更强的代码与文献阅读工具。所有变更均为增量且向后兼容——既有项目可无改动继续工作，新闸门与速率限制为可选开启，整套测试在无 GPU、无网络下运行（60 → 99 测试）。
 
-*New: autonomy layer*
-- **Experiment ledger** — every cycle's hypothesis, metrics, and outcome are appended to `workspace/experiments.jsonl`. Crash-safe, zero token cost, and fed back into planning so the agent remembers what it already tried. (`core/ledger.py`)
-- **Data-driven stagnation signal** — the planner is told, from the ledger's metric trajectory, whether results are still improving or have stalled (set `ledger.metric_key`), instead of only a binary repeat-counter.
-- **Append-only research journals** — `DEAD_ENDS.md` (failed approaches — do not retry) and `INSIGHTS.md` (durable observations). Never compacted; rotated to dated backups when large, so history is never silently dropped. (`core/journal.py`)
-- **Zero-cost violation scanner + advisory phase gate** — surface stuck/stale states and whether a baseline metric bar is met, as pure functions over state + ledger. (`core/safety.py`, `core/ledger.py`)
-- **Proactive anti-burn rate limiting** — optional `agent.max_cycles_per_hour` cap protects budget when the agent is stuck in a loop.
+*新增：自主层*
+- **实验账本**：每轮假设、指标与结果追加到 `workspace/experiments.jsonl`。崩溃安全、零 token 成本，并反馈进规划，使 Agent 记住自己试过什么。（`core/ledger.py`）
+- **数据驱动停滞信号**：规划器从账本的指标轨迹获知结果是仍在改进还是已停滞（设置 `ledger.metric_key`），而非只靠二值重复计数。
+- **只追加研究日志**：`DEAD_ENDS.md`（失败方法——勿重试）与 `INSIGHTS.md`（持久观察）。永不压缩；过大时轮转至带日期的备份，历史永不静默丢失。（`core/journal.py`）
+- **零成本违规扫描 + 建议性阶段闸门**：作为 state + ledger 上的纯函数，暴露卡死/陈旧状态以及是否满足基线指标门槛。（`core/safety.py`、`core/ledger.py`）
+- **主动防烧钱限流**：可选 `agent.max_cycles_per_hour` 上限，在 Agent 陷入死循环时保护预算。
 
-*New: agent tools*
-- **Code comprehension** — `search_code` (regex grep across the workspace), `list_tree` (recursive, depth-limited repo map), and `read_file` line ranges so large files are no longer blindly truncated. Symlink-safe (never escapes the workspace).
-- **Literature** — `get_paper` (paper details + reference/citation snowballing) and `search_arxiv` (freshest preprints), alongside the existing Semantic Scholar search.
-- All new tools work identically in **local and SSH** execution modes.
+*新增：Agent 工具*
+- **代码理解**：`search_code`（跨工作区正则 grep）、`list_tree`（递归、限深的仓库地图）、`read_file` 行区间（大文件不再被盲目截断）。符号链接安全（绝不逃逸工作区）。
+- **文献**：`get_paper`（论文详情 + 引用雪球）与 `search_arxiv`（最新预印本），叠加既有 Semantic Scholar 检索。
+- 所有新工具在 **local 与 SSH** 执行模式下行为一致。
 
-*Config:* new optional sections `ledger:`, `stagnation:`, `journal:`, `safety:`, `gates:`, and `agent.max_cycles_per_hour` — all default to current behavior. See `config.yaml`.
+*配置：* 新增可选段 `ledger:`、`stagnation:`、`journal:`、`safety:`、`gates:`、`agent.max_cycles_per_hour`——全部默认保持当前行为。参见 `config.yaml`。
 
-**2026-04-22**
-- Added explicit compatible-API configuration, dual Claude/Codex skill installation, and safer skill-installer ownership checks.
+**2026-04-22** — 增加显式兼容 API 配置、Claude/Codex 双技能安装、更安全的技能安装器属主检查。
 
-**2026-04-21**
-- Added an optional SSH execution backend so the controller can stay local while code edits, training, logs, PID checks, and GPU queries run on one remote host.
+**2026-04-21** — 增加可选 SSH 执行后端：控制器留在本地，而代码编辑、训练、日志、PID 检查与 GPU 查询跑在一台远程主机上。
 
-**2026-04-19**
-- Added a real multi-turn worker tool-use loop with authoritative tool-result handoff, stricter CLI behavior, and safer tool-call parsing.
+**2026-04-19** — 增加真实的多次工具调用 worker 循环，带权威工具结果交接、更严格的 CLI 行为与更安全的工具调用解析。
 
-**2026-04-18**
-- Added subscription-backed `claude_cli` and `codex_cli` provider modes with fail-fast provider validation and more defensive CLI subprocess handling.
+**2026-04-18** — 增加订阅制 `claude_cli` 与 `codex_cli` 供应商模式，带快速失败供应商校验与更防御性的 CLI 子进程处理。
 
-**2026-04-09**
-- Reduced token growth and tightened loop/tool safeguards with leader-history resets, no-progress fallback, and stronger path and shell protections.
+**2026-04-09** — 通过 leader 历史重置、无进展回退与更强的路径/shell 防护，抑制 token 膨胀并收紧循环与工具保护。
 
-**2026-04-08**
-- Added progress tracking exports with optional Obsidian sync and local text fallback when no vault is configured.
+**2026-04-08** — 增加进度跟踪导出，带可选 Obsidian 同步，无 vault 时回退到本地文本。
 
-## Start In 3 Steps
+## 三步快速开始
 
-If you only want the shortest path to a working experiment loop, do this:
+如果你只想要最短路径跑通实验循环：
 
-1. Create a project folder with one file: `PROJECT_BRIEF.md`
-2. Run `/auto-experiment --project /path/to/project --gpu 0`
-3. Check progress with `/experiment-status` or optional Obsidian/local text notes
+1. 建一个项目文件夹，内含一个文件：`PROJECT_BRIEF.md`
+2. 运行 `/auto-experiment --project /path/to/project --gpu 0`
+3. 通过 `/experiment-status` 或可选的 Obsidian/本地文本查看进度
 
-Prefer AI-guided setup? Open [`AI_GUIDE.md`](AI_GUIDE.md) in Claude / ChatGPT / Codex and let the assistant walk you through it.
+希望 AI 引导配置？在 Claude / ChatGPT / Codex 中打开 [`AI_GUIDE.md`](AI_GUIDE.md)，让助手带你走一遍。
 
-## What You Actually Need
+## 你需要什么
 
-| Requirement | Required | Notes |
-|-------------|----------|-------|
-| Python 3.10+ | Yes | Runtime |
-| 1+ NVIDIA GPU | Yes | For training |
-| API key | Yes | Anthropic-compatible or OpenAI-compatible endpoint |
-| `PROJECT_BRIEF.md` | Yes | Main control file |
-| Project `config.yaml` | Optional | Only if you want to override defaults |
-| Obsidian vault | Optional | If absent, notes fall back to local text files |
+| 需求 | 必须 | 说明 |
+|------|------|------|
+| Python 3.10+ | 是 | 运行环境 |
+| 1+ NVIDIA GPU | 是 | 用于训练 |
+| API key | 是 | Anthropic 兼容或 OpenAI 兼容端点 |
+| `PROJECT_BRIEF.md` | 是 | 主控制文件 |
+| 项目 `config.yaml` | 否 | 仅当你需要覆盖默认值 |
+| Obsidian vault | 否 | 若缺失，笔记回退为本地文本文件 |
 
-## Minimum Working Example
+## 最小可运行示例
 
-The smallest project you can launch looks like this:
+可启动的最小项目形如：
 
 ```text
 my-first-experiment/
 ├── PROJECT_BRIEF.md
-└── workspace/                  # auto-created
+└── workspace/                  # 自动创建
 ```
 
-Minimal `PROJECT_BRIEF.md`:
+最小 `PROJECT_BRIEF.md`：
 
 ```md
 # Goal
@@ -170,77 +131,77 @@ Create the training code from scratch in PyTorch.
 - Max 100 epochs per run
 ```
 
-That is enough to start. Everything else is optional refinement.
+这就是够了。其余都是可选的优化。
 
-## What This Project Is Good At
+## 这个项目擅长什么
 
-This project is for people who already know what experiment they want to run, but do not want to babysit the loop:
+这个项目面向**已经知道自己想跑什么实验、但不想守着循环**的人：
 
-- edit code
-- launch training
-- monitor runs
-- parse logs
-- decide the next variation
-- keep going while you sleep
+- 改代码
+- 启动训练
+- 监控运行
+- 解析日志
+- 决定下一个变体
+- 在你睡觉时继续
 
-It is not trying to replace the researcher. It is trying to take over the repetitive experiment-ops layer.
+它并不试图取代研究者，而是接管重复的"实验运维层"。
 
-## Why It Feels Different From A Simple Script
+## 它为什么不同于一个简单脚本
 
-- It does not just launch one run. It keeps iterating.
-- It does not just monitor. It reflects and decides the next step.
-- It stays cheap because training-time monitoring makes zero LLM calls.
-- It stays controllable because the human can override direction at any cycle.
-- It now supports persistent progress notes in Obsidian or local text files.
+- 它不只启动一次运行，而是不断迭代。
+- 它不只监控，而是反思并决定下一步。
+- 它很便宜，因为训练期监控**零 LLM 调用**。
+- 它可被掌控，因为人可以在任意周期覆盖方向。
+- 它现在支持在 Obsidian 或本地文本中持久记录进度。
 
-## How You Stay In Control
+## 你如何保持掌控
 
-You control the research direction through three files:
+你通过三个文件掌控研究方向：
 
-- `PROJECT_BRIEF.md`: stable goal, constraints, allowed search space
-- `HUMAN_DIRECTIVE.md`: temporary redirect for the next cycle
-- `workspace/MEMORY_LOG.md`: rolling memory of results and decisions
+- `PROJECT_BRIEF.md`：稳定的目标、约束、允许的搜索空间
+- `HUMAN_DIRECTIVE.md`：下一周期的临时重定向
+- `workspace/MEMORY_LOG.md`:结果与决策的滚动记忆
 
-Common control patterns:
+常见控制模式：
 
 ```md
-# Keep the search narrow
-- Only tune augmentation.
-- Do not change the backbone.
-- Keep training budget fixed.
+# 缩小搜索范围
+- 只调数据增强。
+- 不改变主干网络。
+- 保持训练预算固定。
 ```
 
 ```md
-# Make the agent stop exploring a weak direction
-- If gain stays below 0.3 points for 3 runs, stop this branch.
-- Return to the last trusted baseline and try a different idea.
+# 让 Agent 停止探索弱势方向
+- 若连续 3 次增益低于 0.3 分，停止此分支。
+- 回到最近可信基线，换一个想法。
 ```
 
 ```md
-# Force result verification
-- If a result looks unusually strong, rerun with the same seed and one new seed.
-- Do not claim improvement until both reproduce.
+# 强制结果复现
+- 若结果异常强，用相同 seed + 一个新 seed 重跑。
+- 两者都复现前，不得宣称改进。
 ```
 
-## How You See Progress
+## 你如何查看进度
 
-You should never have to guess what the agent is doing.
+你永远不该猜 Agent 在做什么。
 
-- `/experiment-status` shows current goal, best result, cycle count, running status, and recent decisions
-- `/progress-report` generates a structured summary
-- `/obsidian-sync` refreshes persistent notes manually
-- `workspace/progress_tracking/` stores local text notes when no Obsidian vault is configured
+- `/experiment-status` 显示当前目标、最优结果、周期数、运行状态与近期决策
+- `/progress-report` 生成结构化摘要
+- `/obsidian-sync` 手动刷新持久笔记
+- `workspace/progress_tracking/` 在未配置 Obsidian vault 时保存本地文本
 
-If you want a dashboard outside the terminal:
+若想要终端之外的仪表盘：
 
 ```yaml
 obsidian:
   enabled: true
-  vault_path: "~/Documents/MyObsidianVault"   # Optional
+  vault_path: "~/Documents/MyObsidianVault"   # 可选
   auto_append_daily: true
 ```
 
-If `vault_path` is empty, the same information is saved locally:
+若 `vault_path` 为空，同一信息保存到本地：
 
 ```text
 workspace/progress_tracking/Dashboard.txt
@@ -249,119 +210,122 @@ workspace/progress_tracking/Daily/YYYY-MM-DD.txt
 
 ---
 
-## 💛 A Note on Why We Built This — and How We Hope You'll Use It
+## 💛 为什么我们做这个——以及希望你如何使用它
 
-> **Our hope is simple: science stays pure, and the human stays in the loop.**
+> **我们的希望很简单：科学保持纯粹，人始终在循环里。**
 
-We built this framework for one reason — to take the *repetitive, mechanical* parts of running deep learning experiments off the researcher's plate (launching jobs, watching GPUs, parsing logs, sweeping hyperparameters) so that more of your time can go into **the part that actually matters: thinking**.
+我们构建这个框架只有一个理由——把运行深度学习实验中**重复、机械**的部分（提交任务、盯 GPU、解析日志、扫超参）从研究者肩上卸下来，让你把更多时间投入到**真正重要的事：思考**。
 
-If you're here because you want to spend less time babysitting training runs and more time reading, reasoning, and chasing your own ideas — welcome. That's exactly who we built this for.
+如果你来这里是因为想少盯着训练跑、多花时间阅读、推理并追逐自己的想法——欢迎，这正是我们做这个的原因。
 
-**A gentle thought we'd love every user to share with us:**
+**我们想与每位使用者分享的一句温柔提醒：**
 
-The agent is happy to run the experiments. But please let the *ideas*, the *interpretation*, and the *scientific judgment* remain yours. We don't see automation and academic integrity as being in tension — quite the opposite. The hours this tool gives back are meant to be reinvested in **deeper thinking**, not in skipping it.
+Agent 很乐意替你跑实验。但请把 *想法*、*解读* 与 *科学判断* 留给你自己。我们不认为自动化与学术诚信相互矛盾——恰恰相反。这个工具省下的时间，是为了投入到**更深的思考**，而不是跳过思考。
 
-So we'd kindly ask that this project not be used to fabricate results, to generate "research" with no human in the loop, or to shortcut the parts of science that depend on a human actually understanding what they're doing. That isn't the future we want to help build — and we don't think it's the one most of you want either.
+因此我们恳请：本项目不要被用于伪造结果、生成"没有人在循环里"的"研究"，或走捷径跳过那些依赖人真正理解自己在做什么的科学环节。那不是我们想帮助建设的未来——我们也不认为那是大多数人想要的未来。
 
-> **Science should stay pure. The agent can run the experiments — but the ideas, the interpretation, and the responsibility belong to the human.**
+> **科学应保持纯粹。Agent 可以替你跑实验——但想法、解读与责任属于人。**
 >
 > **学术应当保持纯粹。** Agent 可以替你跑实验，但 idea、判断与责任，请留给人来承担。我们真心希望每一位使用者都能 **human in the loop 地去思考**，把这个工具省下来的时间，投入到真正属于你自己的研究方向里。
->
-> **科学は純粋であるべきです。** Agent は実験を走らせることができますが、アイデア・解釈・責任は、どうか人間の手に残してください。
->
-> **과학은 순수해야 합니다.** Agent는 실험을 대신 실행해 줄 수 있지만, 아이디어와 해석, 그리고 책임은 부디 사람의 몫으로 남겨주세요.
 
-We trust the people who pick up this tool to take that seriously — and we built it because we believe most of you already do. Thank you for being one of them. 💛
+我们信任拿起这个工具的人会认真对待这一点——也因为我们相信你们大多已经如此。谢谢你是其中之一。💛
 
 ---
 
-## The Core Idea
+## 核心思想
 
-You design the experiment. The agent handles the repetitive loop.
+你设计实验。Agent 处理重复循环。
 
-**Deep Researcher Agent**:
+**深度科研 Agent**：
 
-1. **Thinks** — Reads your project brief, analyzes previous results, plans the next experiment
-2. **Executes** — Modifies code/configs, runs a dry-run, launches training on GPU
-3. **Monitors** — Watches training at **zero LLM cost** (just process checks + log reads)
-4. **Reflects** — Parses results, compares with baselines, decides what to try next
-5. **Repeats** — 24/7, without human intervention
+1. **思考（THINK）**——读取项目 brief，分析既往结果，规划下一个实验
+2. **执行（EXECUTE）**——修改代码/配置，dry-run，在 GPU 上启动训练
+3. **监控（Monitor）**——以**零 LLM 成本**盯训练（仅进程检查 + 日志读取）
+4. **反思（REFLECT）**——解析结果，与基线对比，决定下一步
+5. **重复（Repeat）**——7×24 无人干预
 
 ```
-You sleep 8 hours     → Agent runs 3 experiment cycles
-You go on vacation    → Agent explores 50+ hyperparameter configs  
-You write your paper  → Agent already has the results table ready
+你睡 8 小时     → Agent 跑 3 个实验周期
+你去度假       → Agent 探索 50+ 超参配置
+你写论文       → Agent 已备好结果表
 ```
 
 ---
 
-## Battle-Tested Results
+## 实测结果
 
-> Not benchmarks. Real results from months of 24/7 autonomous operation across research projects.
+> 不是基准测试。而是数月 7×24 自主运行于研究项目的真实结果。
 
-| Metric | Result |
-|--------|--------|
-| Autonomous experiment cycles completed | 500+ |
-| Best single-project improvement | 52% over baseline (across 200+ auto-run experiments) |
-| Concurrent projects managed | 4 projects across 4 GPU servers |
-| Longest continuous autonomous operation | 30+ days without human intervention |
-| Average LLM cost per 24h cycle | ~$0.08 |
+| 指标 | 结果 |
+|------|------|
+| 自主完成实验周期 | 500+ |
+| 单项目最优提升 | 较基线 +52%（200+ 自动实验） |
+| 并行管理项目 | 4 个项目 × 4 台 GPU 服务器 |
+| 最长连续自主运行 | 30+ 天无人干预 |
+| 每 24h 周期平均 LLM 成本 | ~$0.08 |
 
 ---
 
-## Key Innovation: Zero-Cost Monitoring
+## 关键创新：零成本监控
 
-The #1 concern with running LLM agents 24/7: **cost**.
+7×24 运行 LLM Agent 的头号顾虑：**成本**。
 
-Most agent frameworks call the LLM every few minutes to "check progress". That's $50+/day.
+多数 Agent 框架每隔几分钟就调一次 LLM "检查进度"。那要 $50+/天。
 
-Experiment Agent **sleeps** during training — zero API calls. It only wakes the LLM when training finishes.
+实验 Agent 在训练期间"休眠"——零 API 调用。只在训练结束时唤醒 LLM。
 
 ```
-                    LLM Active              Zero Cost              LLM Active
+                    LLM 激活              零成本              LLM 激活
                   ┌────────────┐    ┌─────────────────────┐    ┌────────────┐
                   │   THINK    │    │   TRAIN & MONITOR    │    │  REFLECT   │
                   │ (5-10 min) │    │   (hours/days)       │    │ (5-10 min) │
                   │            │    │                      │    │            │
-                  │ • Analyze  │    │ • kill -0 $PID       │    │ • Parse    │
-                  │ • Plan     │    │ • nvidia-smi         │    │   logs     │
-                  │ • Code     │    │ • tail log           │    │ • Compare  │
-                  │            │    │                      │    │ • Decide   │
+                  │ • 分析     │    │ • kill -0 $PID       │    │ • 解析     │
+                  │ • 规划     │    │ • nvidia-smi         │    │  日志      │
+                  │ • 写码     │    │ • tail log           │    │ • 对比     │
+                  │            │    │                      │    │ • 决策     │
                   │  ~$0.05    │    │      $0.00           │    │  ~$0.03    │
                   └────────────┘    └─────────────────────┘    └────────────┘
 ```
 
-**24-hour cycle with 8 hours of training: ~$0.08 in LLM calls.**
+**含 8 小时训练的 24h 周期：LLM 调用约 $0.08。**
 
 ---
 
-## Architecture
+## 架构
 
-### The THINK → EXECUTE → REFLECT Loop
+> 架构与训练优化流程见下方两张新生成的图，配套说明见 [`docs/diagrams/README.md`](docs/diagrams/README.md)。
 
-```
-┌──────────────────────────────────────────────────────┐
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐       │
-│  │  THINK   │───→│ EXECUTE  │───→│ REFLECT  │──┐    │
-│  │          │    │          │    │          │  │    │
-│  │ Analyze  │    │ Dry-run  │    │ Evaluate │  │    │
-│  │ Plan     │    │ Launch   │    │ Compare  │  │    │
-│  │ Decide   │    │ Monitor  │    │ Update   │  │    │
-│  └──────────┘    └──────────┘    └──────────┘  │    │
-│       ↑                                         │    │
-│       └─────────────────────────────────────────┘    │
-│                    ↻ 24/7 Loop                       │
-└──────────────────────────────────────────────────────┘
-```
+### 系统架构图
 
-### Leader-Worker Agent System
+![AutoDL 系统架构图](docs/diagrams/architecture.svg)
 
-Only ONE worker runs at a time. Others idle at zero cost.
+> 交互式版本：[`docs/diagrams/architecture.html`](docs/diagrams/architecture.html)（在浏览器中打开以获得最佳效果）。
+
+系统分为**控制面 / 执行面 / 数据·治理面**三个平面，形成"编排—执行—治理"的闭环：
+
+- **控制面**（`core/loop.py` + `core/agents.py`）：`ResearchLoop` 驱动 THINK→EXECUTE→REFLECT；`Leader` 读取账本生成计划；`Dispatcher` 管理并行度、任务队列与 PID 追踪；三类 Worker（Idea / Code / Writing）按最小工具集隔离；`ToolRegistry` 对受保护文件施加写边界。
+- **执行面**（`core/execution.py` + `gpu/*` + `core/monitor.py`）：三态后端 `local` / `ssh` / `slurm`（slurm 走 `sbatch --parsable` + `sacct` 探针）；GPU 子系统的 `get_free_gpus(reserve_last=True)` 选卡并保留最后一张做保活；`Monitor` 以零 LLM 轮询进度与停滞。
+- **数据·治理面**（`workspace/`、`core/experiment_contract.py`、Git、快照）：预算契约 + 写保护；`experiments.jsonl` 只追加账本；Git 冠军分支锁定（"Champion never regresses"）；`snapshots.py` 导出进度快照。
+
+### 训练实验流程图
+
+![AutoDL 训练实验流程图](docs/diagrams/training_flow.svg)
+
+> 交互式版本：[`docs/diagrams/training_flow.html`](docs/diagrams/training_flow.html)（在浏览器中打开以获得最佳效果）。
+
+**主研究循环**：① 读账本/指令 → ② Leader THINK → 有可行计划?（否→⑧ 冷却/去重退避→回①；是→③ 调度 Code Agent）→ ④ launch_experiment（深橙，进入训练执行）→ ⑤ Monitor → 机器裁决（KEEP/DISCARD/INCOMPARABLE）→ KEEP→⑦ 晋级冠军/归档→⑨ 写账本+收敛判定；DISCARD/不可比→⑨ → 回① 或达收敛停止。
+
+**训练执行展开**（launch 内部）：选择执行后端（local / ssh / slurm）→ 选模型路径（CV-CNN / NLP-Transformer 微调 / 通用单卡）→ 训练 → 产出 metrics → 回流主循环裁决。三类模型在**超参搜索维度、资源策略、判别指标**上有差异（详见配套说明）。
+
+### Leader-Worker Agent 系统
+
+同一时刻只运行一个 Worker。其余零成本空闲。
 
 ```
               ┌───────────────┐
-              │    Leader     │  Persistent conversation
-              │   (Planner)   │  within each cycle
+              │    Leader     │  周期内持久对话
+              │   (Planner)   │
               └───┬───┬───┬───┘
                   │   │   │
           ┌───────┘   │   └───────┐
@@ -373,107 +337,87 @@ Only ONE worker runs at a time. Others idle at zero cost.
     └──────────┘ └──────────┘ └──────────┘
 ```
 
-### Two-Tier Memory (Constant Size Forever)
+### 两层记忆（大小恒定）
 
 ```
 ┌─────────────────────────────────────────┐
 │ Tier 1: PROJECT_BRIEF.md               │
-│ • Frozen project reference              │
-│ • Max 3,000 chars                       │
+│ • 冻结的项目参考                          │
+│ • 最大 3,000 字符                        │
 ├─────────────────────────────────────────┤
 │ Tier 2: MEMORY_LOG.md                   │
-│ • Key Results (auto-compact at 1,200ch) │
-│ • Recent Decisions (rolling last 15)    │
-│ • Max 2,000 chars                       │
+│ • 关键结果（1200ch 自动压缩）             │
+│ • 近期决策（滚动保留最近 15 条）           │
+│ • 最大 2,000 字符                        │
 ├─────────────────────────────────────────┤
-│ Total: ~5K chars / ~1,500 tokens        │
-│ SAME whether running 1 day or 6 months  │
+│ 总计：约 5K 字符 / 约 1,500 tokens       │
+│ 运行 1 天或 6 个月都一样                  │
 └─────────────────────────────────────────┘
 ```
 
-### Cost Control Strategies (8 Total)
+### 成本控制策略（共 8 种）
 
-| # | Strategy | Savings |
-|---|----------|---------|
-| 1 | Zero-LLM monitoring during training | 90%+ of runtime is free |
-| 2 | Two-Tier memory with auto-compaction | Fixed context window |
-| 3 | Leader conversation persists within cycle | Brief sent once per cycle |
-| 4 | Anthropic prompt caching | System/tools cached |
-| 5 | Per-agent minimal tool sets (3-5 tools) | Less schema overhead |
-| 6 | Slim system prompts | Fewer input tokens |
-| 7 | State trimmed before sending | No bloat |
-| 8 | Single worker at a time | No parallel LLM costs |
+| # | 策略 | 节省 |
+|---|------|------|
+| 1 | 训练期零 LLM 监控 | 90%+ 运行时间免费 |
+| 2 | 两层记忆自动压缩 | 固定上下文窗口 |
+| 3 | Leader 会话在周期内持久 | 每周期只发一次 brief |
+| 4 | Anthropic 提示缓存 | 系统/工具缓存 |
+| 5 | 每 Agent 最小工具集（3-5） | 更少 schema 开销 |
+| 6 | 精简系统提示 | 更少输入 token |
+| 7 | 发送前裁剪状态 | 无冗余 |
+| 8 | 同一时刻单个 Worker | 无并行 LLM 成本 |
 
 ---
 
-<a name="quickstart"></a>
-## Getting Started (Step by Step)
+## 快速开始（逐步）
 
-> **Complete beginner?** Follow every step below. You'll go from zero to a running experiment agent in ~10 minutes.
+> **纯新手？** 逐步走完每一步。约 10 分钟从零到运行实验 Agent。
 >
-> **Prefer AI-guided setup?** Open [`AI_GUIDE.md`](AI_GUIDE.md) in Claude Code, ChatGPT, or Codex — the AI will walk you through everything interactively.
+> **偏好 AI 引导？** 在 Claude Code、ChatGPT 或 Codex 中打开 [`AI_GUIDE.md`](AI_GUIDE.md)——AI 会交互式带你走完全过程。
 
-### Step 0: What You Need
+### 第 0 步：你需要的
 
-| Requirement | Why | How to Check |
-|-------------|-----|-------------|
-| Python 3.10+ | Runtime | `python3 --version` |
-| [Claude Code](https://claude.ai/claude-code) | The AI backbone | `claude --version` |
-| 1+ NVIDIA GPU | For training | `nvidia-smi` |
-| Anthropic API key | LLM calls | `echo $ANTHROPIC_API_KEY` |
+| 需求 | 为什么 | 如何检查 |
+|------|--------|---------|
+| Python 3.10+ | 运行环境 | `python3 --version` |
+| [Claude Code](https://claude.ai/claude-code) | AI 主干 | `claude --version` |
+| 1+ NVIDIA GPU | 训练 | `nvidia-smi` |
+| Anthropic API key | LLM 调用 | `echo $ANTHROPIC_API_KEY` |
 
-Don't have an API key? Get one at [console.anthropic.com](https://console.anthropic.com/) and set it:
+没有 API key？到 [console.anthropic.com](https://console.anthropic.com/) 获取并设置：
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-xxxxx"
-# Add to ~/.bashrc or ~/.zshrc to make it permanent
+# 加入 ~/.bashrc 或 ~/.zshrc 使其永久生效
 ```
 
-### Step 1: Install
+### 第 1 步：安装
 
 ```bash
-# Clone the repo
+# 克隆仓库
 git clone https://github.com/shaozhongfei001/AutoDL.git
 cd AutoDL
 
-# Install Python dependencies
+# 安装 Python 依赖
 pip install -r requirements.txt
 
-# Install 8 Claude slash commands and 8 Codex local skills
+# 安装 8 个 Claude 斜杠命令和 8 个 Codex 本地技能
 python install.py
 
-# Verify everything works
+# 验证一切正常
 python -m core.loop --check
 ```
 
-You should see:
-```
-  Deep Researcher Agent — Installer
-  ========================================
+### 第 2 步：创建第一个项目
 
-    ✓ Claude /auto-experiment
-    ✓ Claude /experiment-status
-    ✓ Claude /gpu-monitor
-    ✓ Claude /daily-papers
-    ✓ Claude /paper-analyze
-    ✓ Claude /conf-search
-    ✓ Claude /progress-report
-    ✓ Claude /obsidian-sync
-    ✓ Codex $auto-experiment
-    ...
-
-  Done! 8 Claude commands and 8 Codex skills installed.
-```
-
-### Step 2: Create Your First Project
-
-Let's say you want to train a ResNet on CIFAR-100. Create a project folder with a `PROJECT_BRIEF.md`:
+假设你想在 CIFAR-100 上训练 ResNet。创建项目文件夹并写入 `PROJECT_BRIEF.md`：
 
 ```bash
 mkdir ~/my-first-experiment
 cd ~/my-first-experiment
 ```
 
-Now write the brief — **this is the most important file**. It tells the agent what you want:
+现在写 brief——**这是最重要的文件**。它告诉 Agent 你想要什么：
 
 ```bash
 cat > PROJECT_BRIEF.md << 'EOF'
@@ -502,284 +446,186 @@ No experiments run yet. Starting from scratch.
 EOF
 ```
 
-**Tips for writing a good brief:**
-- Be specific about the goal (metric + target value)
-- Tell it where the code/data is (or say "create from scratch")
-- List constraints (which GPU, max epochs, etc.)
-- Give it a decision tree ("if X, try Y") — this guides the agent like you would guide a junior student
+**写好 brief 的技巧：**
+- 具体说明目标（指标 + 目标值）
+- 告诉它代码/数据在哪（或说"从零创建"）
+- 列出约束（用哪张 GPU、最大 epoch 等）
+- 给它一棵决策树（"if X, try Y"）——这就像带一个初级学生一样引导 Agent
 
-### Step 3: Launch the Agent
+### 第 3 步：启动 Agent
 
-**Option A: Through Claude Code (recommended)**
+**方式 A：通过 Claude Code（推荐）**
 
-Open Claude Code and type:
+打开 Claude Code 输入：
 ```
 /auto-experiment --project ~/my-first-experiment --gpu 0
 ```
 
-**Option B: Through Python directly**
+**方式 B：直接通过 Python**
 
 ```bash
 python -m core.loop \
   --project ~/my-first-experiment \
   --gpu 0 \
-  --max-cycles 5    # Stop after 5 cycles (remove for unlimited)
+  --max-cycles 5    # 5 个周期后停止（去掉则无限）
 ```
 
-### Step 4: Watch What Happens
+### 第 4 步：观察发生了什么
 
-The agent will now do everything automatically. Here's what each cycle looks like:
+Agent 会自动完成一切。每个周期大致如下：
 
 ```
 === Cycle 1 ===
 
-[THINK] Reading PROJECT_BRIEF.md...
+[THINK] 读取 PROJECT_BRIEF.md...
         Goal: ResNet-50 on CIFAR-100, target 80%+
-        No previous experiments. Starting with baseline.
-        Plan: Basic ResNet-50, lr=0.1, SGD with momentum, 100 epochs.
+        无既往实验。从基线开始。
+        Plan: 基础 ResNet-50, lr=0.1, SGD with momentum, 100 epochs.
 
-[EXECUTE] Creating train.py...
-          Creating config.yaml...
-          Running dry-run (2 steps)... ✓ No errors
-          Launching training: nohup python train.py --config config.yaml
+[EXECUTE] 创建 train.py...
+          创建 config.yaml...
+          dry-run（2 步）... ✓ 无错误
+          启动训练：nohup python train.py --config config.yaml
           PID: 12345, Log: logs/exp001.log
 
-[MONITOR] Training in progress... (zero LLM cost)
-          15:00 — PID alive, GPU 98%, Epoch 12/100, loss=2.34
-          15:15 — PID alive, GPU 97%, Epoch 25/100, loss=1.87
-          15:30 — PID alive, GPU 98%, Epoch 38/100, loss=1.54
+[MONITOR] 训练进行中...（零 LLM 成本）
+          15:00 — PID 存活, GPU 98%, Epoch 12/100, loss=2.34
+          15:15 — PID 存活, GPU 97%, Epoch 25/100, loss=1.87
           ...
-          17:45 — PID alive, GPU 97%, Epoch 100/100, loss=0.82
-          18:00 — PID terminated. Training complete.
+          18:00 — PID 终止。训练完成。
 
-[REFLECT] Parsing logs... test accuracy = 76.3%
-          Result: 76.3% — below 80% target
-          Brief says: "If < 75%, try cosine annealing"
-          76.3% > 75%, so try augmentation instead.
-          Decision: Add mixup augmentation, keep lr=0.1 + cosine
-          Milestone logged: "Exp001: ResNet-50 baseline, 76.3%"
+[REFLECT] 解析日志... test accuracy = 76.3%
+          结果：76.3% — 低于 80% 目标
+          brief 说："If < 75%, try cosine annealing"
+          76.3% > 75%，改为试 augmentation。
+          决策：加 mixup augmentation, 保持 lr=0.1 + cosine
+          里程碑已记录："Exp001: ResNet-50 baseline, 76.3%"
 
 === Cycle 2 ===
 
-[THINK] Best so far: 76.3% (Exp001)
-        Plan: Add mixup (alpha=0.2) + cosine annealing schedule
+[THINK] 目前最优：76.3% (Exp001)
+        Plan: 加 mixup (alpha=0.2) + cosine annealing schedule
         ...
 ```
 
-### Step 5: Check Progress Anytime
+### 第 5 步：随时查看进度
 
-While the agent is running, you can check on it:
+Agent 运行期间，你可以随时查看：
 
 ```bash
-# In Claude Code:
+# 在 Claude Code 中：
 /experiment-status --project ~/my-first-experiment
 
-# Or check GPU usage:
+# 或检查 GPU 占用：
 /gpu-monitor
 ```
 
-You'll see something like:
-```
-# Experiment Status — my-first-experiment
+### 第 6 步：必要时干预
 
-## Goal
-ResNet-50 on CIFAR-100 → 80%+ accuracy
-
-## Progress
-- Cycles completed: 3
-- Current best: 79.1% (Exp003: ResNet-50 + mixup + cosine)
-- Status: TRAINING (PID 12389, GPU 0, running 1.5h)
-
-## Key Results
-[04-07 15:00] Exp001: ResNet-50 baseline, 76.3%
-[04-07 18:30] Exp002: + cosine annealing, 77.8%
-[04-07 22:00] Exp003: + mixup α=0.2, 79.1%   ← best
-
-## Current Training
-Epoch 67/100 | loss: 0.71 | acc: 79.4%
-```
-
-### Step 5.5: Save Progress to Obsidian or Local Text
-
-Enable progress export in your project `config.yaml`:
-
-```yaml
-obsidian:
-  enabled: true
-  vault_path: "~/Documents/MyObsidianVault"   # Optional
-  project_subdir: "DeepResearcher/{project_name}"
-  auto_append_daily: true
-```
-
-If `vault_path` is set, the agent writes:
-
-```text
-DeepResearcher/my-first-experiment/Dashboard.md
-DeepResearcher/my-first-experiment/Daily/YYYY-MM-DD.md
-```
-
-If `vault_path` is empty, it falls back to project-local files:
-
-```text
-workspace/progress_tracking/Dashboard.txt
-workspace/progress_tracking/Daily/YYYY-MM-DD.txt
-```
-
-Manual refresh:
+想改变方向？从任何地方都有三种方式：
 
 ```bash
-/obsidian-sync --project ~/my-first-experiment
-# or
-python -m core.obsidian --project ~/my-first-experiment
-```
-
-### Step 6: Intervene If Needed
-
-Want to change direction? Three ways, from anywhere:
-
-```bash
-# Way 1: Drop a directive file (agent reads it next cycle)
+# 方式 1：放入指令文件（Agent 下一周期读取）
 echo "Stop trying ResNet. Switch to ViT-B/16, start with lr=1e-3" \
   > ~/my-first-experiment/workspace/HUMAN_DIRECTIVE.md
 
-# Way 2: Command-line flag
+# 方式 2：命令行参数
 python -m core.loop --project ~/my-first-experiment \
   --directive "Try label smoothing 0.1"
 
-# Way 3: Edit memory directly (for permanent changes)
+# 方式 3：直接编辑记忆（用于永久更改）
 vim ~/my-first-experiment/workspace/MEMORY_LOG.md
 ```
 
-## Human-in-the-Loop Playbook
+## 人机协作手册
 
-Use the agent as an operator, not a replacement researcher.
+把 Agent 当**操作员**，而不是替代研究者。
 
 ```text
-Human decides:
-- goal
-- constraints
-- forbidden directions
-- when to pivot
+人类决定：
+- 目标
+- 约束
+- 禁止方向
+- 何时转向
 
-Agent executes:
-- code edits
-- runs
-- monitoring
-- summaries
+Agent 执行：
+- 改代码
+- 运行
+- 监控
+- 汇总
 ```
 
-Write stable rules in `PROJECT_BRIEF.md`, and temporary steering in `HUMAN_DIRECTIVE.md`.
+在 `PROJECT_BRIEF.md` 写稳定规则，在 `HUMAN_DIRECTIVE.md` 写临时转向。
 
 ```md
 # HUMAN_DIRECTIVE.md
-- Do not change the dataset.
-- Try label smoothing 0.1 before changing the backbone.
-- Stop this direction if gain stays below 0.3 for 3 runs.
-- Compare against the last trusted baseline, not just the latest run.
+- 不要改变数据集。
+- 换主干前先试 label smoothing 0.1。
+- 若连续 3 次增益低于 0.3，停止此方向。
+- 对照最近可信基线比较，而不只对照最新一次运行。
 ```
 
-Case 1: Safer ablation
+经验法则：让 Agent 处理重复，但方向、解读与责任归人。
 
-```md
-- Only change augmentation.
-- Keep model, optimizer, and training budget fixed.
-- Report a clean comparison table after each run.
-```
+### 第 7 步：用 [Happy Coder](https://github.com/slopus/happy) 手机监控（可选）
 
-Case 2: Deliberate pivot
-
-```md
-- Current ResNet line is saturated.
-- Switch to ViT-B/16 only if the last 3 runs plateau.
-- Before switching, write a short rationale.
-```
-
-Case 3: Suspicious result
-
-```md
-- Accuracy jumped unexpectedly.
-- Re-run with the same seed and one new seed.
-- Do not claim improvement until both runs reproduce.
-```
-
-Rule of thumb: let the agent handle repetition, but keep direction, interpretation, and responsibility human.
-
-### Step 7: Mobile Monitoring with [Happy Coder](https://github.com/slopus/happy) (Optional)
-
-Want to check experiments from your phone? Install [Happy Coder](https://happy.engineering/) ([iOS](https://apps.apple.com/us/app/happy-codex-claude-code-app/id6748571505) / [Android](https://play.google.com/store/apps/details?id=com.ex3ndr.happy)):
+想在手机上查看实验？安装 [Happy Coder](https://happy.engineering/)（[iOS](https://apps.apple.com/us/app/happy-codex-claude-code-app/id6748571505) / [Android](https://play.google.com/store/apps/details?id=com.ex3ndr.happy)）：
 
 ```bash
-# Install CLI (one time)
+# 安装 CLI（一次性）
 npm install -g happy-coder
 
-# Start session through Happy instead of claude
+# 改用 happy 启动会话
 happy
 
-# Inside the session, launch your experiment:
+# 会话内启动实验：
 /auto-experiment --project ~/my-first-experiment --gpu 0
 ```
 
-Now on your phone you can:
-- Get **push notifications** when experiments finish or the agent needs input
-- **Check results** while commuting
-- **Send directives** ("try learning rate 1e-5") from anywhere
-- **Switch between phone and desktop** seamlessly
-- All communication is **end-to-end encrypted**
+现在你可以在手机上：实验完成或 Agent 需要输入时收到**推送通知**、通勤时**查看结果**、随时随地**发送指令**、在手机与桌面间无缝切换，所有通信**端到端加密**。
 
-```
-┌──────────┐     encrypted      ┌──────────┐
-│  Desktop │ ◄──────────────► │  Phone   │
-│  Claude  │     relay          │  Happy   │
-│  Code    │                    │  Coder   │
-├──────────┤                    ├──────────┤
-│ Agent    │  ← push notify ──  │ "Try     │
-│ running  │                    │  lr=1e-5"│
-│ 24/7     │  ── status ────►  │ ✓ Got it │
-└──────────┘                    └──────────┘
-```
+### 好的 PROJECT_BRIEF.md 长什么样
 
-### What a Good PROJECT_BRIEF.md Looks Like
-
-The brief is your main lever. Here are examples for different scenarios:
+brief 是你的主要杠杆。以下针对不同场景的例子：
 
 <details>
-<summary><b>Example: Fine-tuning a pretrained model</b></summary>
+<summary><b>例：微调预训练模型</b></summary>
 
 ```markdown
 # Goal
-Fine-tune ViT-B/16 (pretrained on ImageNet-21K) on Oxford Flowers-102.
+在 Oxford Flowers-102 上微调 ViT-B/16（在 ImageNet-21K 上预训练）。
 Target: 95%+ test accuracy.
 
 # Codebase
-- Training script: finetune.py (already exists)
-- Config: configs/vit_flowers.yaml
-- Data: /data/flowers102/ (already downloaded)
-- Pretrained weights: /models/vit-b16-21k.pth
+- 训练脚本：finetune.py（已存在）
+- 配置：configs/vit_flowers.yaml
+- 数据：/data/flowers102/（已下载）
+- 预训练权重：/models/vit-b16-21k.pth
 
 # What to Try
-1. First: freeze backbone, train classifier head only (10 epochs, lr=1e-2)
-2. Then: unfreeze all, fine-tune end-to-end (30 epochs, lr=1e-4)
-3. If stuck below 93%: try layer-wise lr decay (0.65)
-4. If above 94%: try test-time augmentation
+1. 先：冻结主干，只训分类头（10 epochs, lr=1e-2）
+2. 再：解冻全部，端到端微调（30 epochs, lr=1e-4）
+3. 若卡在 93% 以下：试层级 lr 衰减（0.65）
+4. 若超过 94%：试测试时增强
 
 # Constraints
 - GPU 0, batch size 64
-- Save best checkpoint based on val accuracy
+- 基于 val accuracy 保存最优 checkpoint
 ```
 </details>
 
 <details>
-<summary><b>Example: Hyperparameter search</b></summary>
+<summary><b>例：超参搜索</b></summary>
 
 ```markdown
 # Goal
-Find the best hyperparameters for our GAN on CelebA-HQ 256x256.
+为 CelebA-HQ 256x256 上的 GAN 找到最佳超参。
 Target: FID < 15.
 
 # Codebase
 - train_gan.py, configs/celeba_gan.yaml
 - Data: /data/celeba_hq_256/
-- Evaluation: eval_fid.py --real_dir /data/celeba_hq_256/val
+- 评估：eval_fid.py --real_dir /data/celeba_hq_256/val
 
 # Search Space
 - Learning rate: [1e-4, 2e-4, 5e-4]
@@ -788,136 +634,114 @@ Target: FID < 15.
 - Spectral norm: [yes, no]
 
 # Strategy
-Start with lr=2e-4, beta1=0.0, d_steps=1, spectral_norm=yes (baseline).
-Change ONE variable at a time. Run each for 50K steps.
-Always evaluate FID after training.
+以 lr=2e-4, beta1=0.0, d_steps=1, spectral_norm=yes 为基线。
+一次只改一个变量。每个跑 50K 步。
+训练后总是评估 FID。
 
 # Constraints
-- GPU 0-1 (can use both)
-- Max 50K steps per run (~4 hours)
+- GPU 0-1（可用两张）
+- 每次最多 50K 步（约 4 小时）
 ```
 </details>
 
 <details>
-<summary><b>Example: Debugging a training issue</b></summary>
+<summary><b>例：排查训练问题</b></summary>
 
 ```markdown
 # Goal
-Figure out why our transformer model diverges after epoch 20.
-Currently: loss explodes from 0.5 to NaN around epoch 20-25.
+找出 transformer 模型为什么在 epoch 20 后发散。
+当前：loss 在 epoch 20-25 附近从 0.5 爆炸到 NaN。
 
 # Codebase
 - train_transformer.py, model/transformer.py
 - Config: configs/base.yaml
-- Logs from failed runs: logs/failed_run_001.log, logs/failed_run_002.log
+- 失败运行日志：logs/failed_run_001.log, logs/failed_run_002.log
 
 # What to Investigate
-1. Check gradient norms — add gradient clipping (max_norm=1.0)
-2. Try lower learning rate (current: 1e-3, try: 1e-4, 5e-5)
-3. Check if it's a specific layer — add per-layer gradient logging
-4. Try warmup (1000 steps) if not already present
-5. Check data — are there any NaN/Inf in the dataset?
+1. 检查梯度范数——加梯度裁剪（max_norm=1.0）
+2. 试更低学习率（当前：1e-3, 试：1e-4, 5e-5）
+3. 检查是否特定层——加逐层梯度日志
+4. 若还没有，试 warmup（1000 steps）
+5. 检查数据——数据集里有没有 NaN/Inf？
 
 # Constraints
-- GPU 0, run each test for 30 epochs (enough to see if it diverges)
-- Log gradient norms every 100 steps
+- GPU 0, 每个测试跑 30 epochs（足够看出是否发散）
+- 每 100 steps 记录梯度范数
 ```
 </details>
 
 ### FAQ
 
 <details>
-<summary><b>Q: How much does it cost to run?</b></summary>
+<summary><b>问：运行要多少钱？</b></summary>
 
-About $0.08 per 24-hour cycle (if training takes 8 hours). The secret: zero LLM calls during training. You only pay for the THINK and REFLECT phases (~10 min each).
+约 $0.08 / 24h 周期（如果训练占 8 小时）。秘诀：训练期间零 LLM 调用。只为 THINK 和 REFLECT 阶段付费（各约 10 分钟）。
 </details>
 
 <details>
-<summary><b>Q: Can it modify my existing code?</b></summary>
+<summary><b>问：它会修改我已有的代码吗？</b></summary>
 
-Yes. The Code Agent can read, write, and modify any file in your project. It will make changes, dry-run to verify, then launch training. It won't touch protected files (PROJECT_BRIEF.md, MEMORY_LOG.md).
+会。Code Agent 能读、写、修改项目中的任意文件。它会做修改、dry-run 验证，然后启动训练。它不会动受保护文件（`PROJECT_BRIEF.md`、`MEMORY_LOG.md`）。
 </details>
 
 <details>
-<summary><b>Q: What if the agent goes in a wrong direction?</b></summary>
+<summary><b>问：Agent 走错方向怎么办？</b></summary>
 
-Drop a directive: `echo "Stop. Go back to the ResNet approach" > workspace/HUMAN_DIRECTIVE.md`. The agent reads it next cycle with highest priority.
+放一条指令：`echo "Stop. Go back to the ResNet approach" > workspace/HUMAN_DIRECTIVE.md`。Agent 下一周期会以最高优先级读取它。
 </details>
 
 <details>
-<summary><b>Q: Can I run multiple projects at the same time?</b></summary>
+<summary><b>问：能同时跑多个项目吗？</b></summary>
 
-Yes. Launch separate agent instances in different terminals/tmux sessions, each pointing to a different project and GPU.
+能。在不同终端/tmux 会话启动独立 Agent 实例，各自指向不同项目与 GPU。
 </details>
 
 <details>
-<summary><b>Q: What happens if training crashes?</b></summary>
+<summary><b>问：训练崩溃了会怎样？</b></summary>
 
-The monitor detects the process died, captures the error log, and passes it to REFLECT. The agent will analyze the crash, fix the code, and retry.
+Monitor 检测到进程死亡，抓取错误日志，传给 REFLECT。Agent 会分析崩溃、修代码、重试。
 </details>
 
 <details>
-<summary><b>Q: Can I use it with PyTorch / TensorFlow / JAX?</b></summary>
+<summary><b>问：能用于 PyTorch / TensorFlow / JAX 吗？</b></summary>
 
-Yes. The agent works with any training framework. It just launches shell commands and reads log files — it doesn't care what framework produces them.
+能。Agent 与任何训练框架兼容。它只是启动 shell 命令、读取日志文件——不关心是什么框架产生它们。
 </details>
 
 ---
 
-## One-Click Install (Claude + Codex)
+## 一键安装（Claude + Codex）
 
-All features are packaged as Claude Code slash commands and Codex local skills.
-**One command to install:**
+所有功能打包为 Claude Code 斜杠命令和 Codex 本地技能。
+**一条命令安装：**
 
 ```bash
 python install.py
 ```
 
-After installation, you get:
-- **8 slash commands** in Claude Code
-- **8 local skills** in Codex (restart Codex after install)
+安装后你将获得：
+- Claude Code 中的 **8 个斜杠命令**
+- Codex 中的 **8 个本地技能**（安装后重启 Codex）
 
-### Core Skills
+### 核心技能
 
-| Command | What It Does |
-|---------|-------------|
-| `/auto-experiment` | Launch the 24/7 autonomous THINK→EXECUTE→REFLECT experiment loop |
-| `/experiment-status` | Check running experiments: progress, metrics, cycle count, GPU usage |
-| `/gpu-monitor` | Quick GPU status: free/busy, memory, utilization, running processes |
+| 命令 | 作用 |
+|------|------|
+| `/auto-experiment` | 启动 7×24 自主 THINK→EXECUTE→REFLECT 实验循环 |
+| `/experiment-status` | 查看运行中的实验：进度、指标、周期数、GPU 占用 |
+| `/gpu-monitor` | 快速 GPU 状态：空闲/忙碌、显存、利用率、运行进程 |
 
-### Research Skills
+### 研究技能
 
-| Command | What It Does |
-|---------|-------------|
-| `/daily-papers` | Daily arXiv recommendations with automatic dedup |
-| `/paper-analyze 2312.12345` | Deep paper analysis + extract real figures from arXiv source |
-| `/conf-search --venue CVPR2025 --query "motion"` | Search CVPR/NeurIPS/ICML/ICLR/AAAI/ECCV... |
-| `/progress-report` | Generate structured progress report with metrics |
-| `/obsidian-sync` | Refresh Obsidian or local progress notes |
+| 命令 | 作用 |
+|------|------|
+| `/daily-papers` | 每日 arXiv 推荐，自动去重 |
+| `/paper-analyze 2312.12345` | 深度论文分析 + 从 arXiv 源码提取真实图表 |
+| `/conf-search --venue CVPR2025 --query "motion"` | 检索 CVPR/NeurIPS/ICML/ICLR/AAAI/ECCV... |
+| `/progress-report` | 生成带指标的结构化进度报告 |
+| `/obsidian-sync` | 刷新 Obsidian 或本地进度笔记 |
 
-### Usage Example
-
-```bash
-# Step 1: Install skills (one time)
-python install.py
-
-# Step 2a: In Claude Code, launch an experiment loop
-/auto-experiment --project /path/to/my_project --gpu 0
-
-# Step 2b: In Codex, use the matching local skill
-$auto-experiment
-
-# Step 3: Check how it's going
-/experiment-status --project /path/to/my_project
-
-# Step 4: Check GPU resources
-/gpu-monitor
-
-# Step 5: Read papers while the agent trains for you
-/daily-papers --topics "vision transformer, image classification"
-```
-
-### Uninstall
+### 卸载
 
 ```bash
 python install.py --uninstall
@@ -925,52 +749,41 @@ python install.py --uninstall
 
 ---
 
-## Supported LLM Providers
+## 支持的 LLM 供应商
 
-Works with **Anthropic-compatible and OpenAI-compatible APIs** out of the box,
-and can also run on a **flat-rate subscription** instead of per-token billing
-via the local CLIs.
+开箱即用支持 **Anthropic 兼容与 OpenAI 兼容 API**，也能通过本地 CLI 用**包月订阅**而非按 token 计费运行。
 
-| Tier | Anthropic (Claude) | OpenAI (Codex/GPT) | Best For |
-|------|-------------------|-------------------|----------|
-| **Fast** | `claude-sonnet-4-6` | `codex-5.3` | Daily experiments, iteration |
-| **Strongest** | `claude-opus-4-6` | `gpt-5.4` | Complex reasoning, architecture decisions |
+| 层级 | Anthropic (Claude) | OpenAI (Codex/GPT) | 最适合 |
+|------|-------------------|-------------------|--------|
+| **快** | `claude-sonnet-4-6` | `codex-5.3` | 日常实验、迭代 |
+| **最强** | `claude-opus-4-6` | `gpt-5.4` | 复杂推理、架构决策 |
 
-### Authentication mode: API key vs. subscription
+### 认证方式：API key 与订阅
 
-| Mode | `provider` value | Billing | Requires | Tool-use support |
-|------|------------------|---------|----------|------------------|
-| API — Anthropic-compatible | `anthropic` | Per-token, via `ANTHROPIC_API_KEY` or custom env | `pip install anthropic` | ✅ Full |
-| API — OpenAI-compatible | `openai` | Per-token, via `OPENAI_API_KEY` or custom env | `pip install openai` | ✅ Full |
-| **Subscription — Claude** | `claude_cli` | Flat-rate, uses your Claude Code / Pro / Max plan | `claude` CLI installed and logged in | ✅ Full |
-| **Subscription — ChatGPT** | `codex_cli` | Flat-rate, uses your ChatGPT Plus / Pro plan | `codex` CLI installed and logged in | ⚠️ Leader only |
+| 模式 | `provider` 值 | 计费 | 需要 | 工具调用支持 |
+|------|---------------|------|------|--------------|
+| API — Anthropic 兼容 | `anthropic` | 按 token，通过 `ANTHROPIC_API_KEY` 或自定义 env | `pip install anthropic` | ✅ 完整 |
+| API — OpenAI 兼容 | `openai` | 按 token，通过 `OPENAI_API_KEY` 或自定义 env | `pip install openai` | ✅ 完整 |
+| **订阅 — Claude** | `claude_cli` | 包月，用你的 Claude Code/Pro/Max 计划 | 已安装并登录 `claude` CLI | ✅ 完整 |
+| **订阅 — ChatGPT** | `codex_cli` | 包月，用你的 ChatGPT Plus/Pro 计划 | 已安装并登录 `codex` CLI | ⚠️ 仅 Leader |
 
-Tool execution is driven by a text-based `<tool_call>` protocol injected
-into the worker's system prompt. All three "Full" providers can be forced
-into pure text-oracle mode so they honor the protocol (for `claude_cli`
-the framework passes `--tools ""` to disable built-in CLI tools). The
-`codex` CLI currently offers no equivalent flag — its internal agentic
-loop will bypass the protocol and the framework cannot recover PIDs from
-experiments it launches. Use `codex_cli` only for the leader/think path
-where no tools are needed.
+工具执行由注入到 worker 系统提示中的文本 `<tool_call>` 协议驱动。三个"完整"供应商都可强制进入纯文本 oracle 模式以遵守协议（对 `claude_cli`，框架传 `--tools ""` 禁用内建 CLI 工具）。`codex` CLI 目前没有等价 flag——其内部 agentic 循环会绕过协议，框架无法从其启动的实验恢复 PID。因此 `codex_cli` 只用于无需工具的 leader/think 路径。
 
-Switch provider in `config.yaml`:
+在 `config.yaml` 中切换供应商：
 ```yaml
 agent:
-  # Pay-per-token (needs API key):
-  provider: "anthropic"           # or "openai"
-  model: "claude-sonnet-4-6"      # or "codex-5.3"
-  base_url: ""                    # optional compatible endpoint override
-  api_key_env: ""                 # optional custom key env var name
-  auth_token_env: ""              # optional custom bearer token env var
+  # 按 token 付费（需要 API key）：
+  provider: "anthropic"           # 或 "openai"
+  model: "claude-sonnet-4-6"      # 或 "codex-5.3"
+  base_url: ""                    # 可选兼容端点覆盖
+  api_key_env: ""                 # 可选自定义 key env 变量名
+  auth_token_env: ""              # 可选自定义 bearer token env
 
-  # Flat-rate subscription (needs CLI login instead of API key):
-  # provider: "claude_cli"        # or "codex_cli"
+  # 包月订阅（需 CLI 登录而非 API key）：
+  # provider: "claude_cli"        # 或 "codex_cli"
 ```
 
-Compatible API examples
-(illustrative only in this repo — these endpoint/model combinations have not
-been live-smoke-tested here):
+兼容 API 示例（本仓库仅作说明——这些端点/模型组合未在此做实弹冒烟测试）：
 ```yaml
 # Qwen / DashScope
 agent:
@@ -994,27 +807,24 @@ agent:
   api_key_env: "MINIMAX_API_KEY"
 ```
 
-Or set via environment (API-key modes only):
+或用环境变量（仅 API-key 模式）：
 ```bash
-# For Anthropic-compatible provider:
+# Anthropic 兼容供应商：
 export ANTHROPIC_API_KEY="sk-ant-xxxxx"
 export ANTHROPIC_BASE_URL="https://your-anthropic-compatible-endpoint"
 
-# For OpenAI-compatible provider:
+# OpenAI 兼容供应商：
 export OPENAI_API_KEY="sk-xxxxx"
 export OPENAI_BASE_URL="https://your-openai-compatible-endpoint/v1"
 
-# For subscription providers (claude_cli / codex_cli): no env var — just
-# install the CLI once and run `claude` or `codex login` to sign in.
+# 订阅供应商（claude_cli / codex_cli）：无 env——安装 CLI 并 `claude` 或 `codex login` 登录即可。
 ```
 
 ---
 
-## Configuration
+## 配置
 
-By default, everything runs locally inside `project.workspace`. If you want
-to keep the controller on your laptop but run code, training, logs, and GPU
-checks on one remote server, enable the optional SSH execution mode:
+默认一切都在 `project.workspace` 内本地运行。若你想让控制器留在笔记本上，而代码、训练、日志、GPU 检查跑在一台远程服务器上，可启用可选的 SSH 执行模式：
 
 ```yaml
 execution:
@@ -1022,39 +832,32 @@ execution:
   ssh_host: "user@your-server"
   remote_workspace: "/home/user/my_project/workspace"
   remote_python: "python3"
-  ssh_args: []                    # optional, e.g. ["-p", "2222"]
+  ssh_args: []                    # 可选，如 ["-p", "2222"]
 ```
 
-In SSH mode, controller state still stays local:
+SSH 模式下控制器状态仍留在本地：
 - `PROJECT_BRIEF.md`
 - `workspace/MEMORY_LOG.md`
 - `workspace/state.json`
 - `workspace/HUMAN_DIRECTIVE.md`
-- local progress / Obsidian exports
+- 本地进度 / Obsidian 导出
 
-The remote host only handles the tool-visible workspace, training process,
-training logs, PID checks, and `nvidia-smi`.
+远程主机只处理工具可见的工作区、训练进程、训练日志、PID 检查与 `nvidia-smi`。
 
-On a **Slurm cluster**, set `mode: "slurm"`. The controller still stays on your
-laptop; training is submitted to the login node with `sbatch --parsable` over a
-single transient SSH call that exits immediately (no process is left running on
-the login node), and `sacct` is the sole liveness authority — Slurm enforces
-`--time`, so a job is always reaped by its time limit plus a safety buffer:
+在 **Slurm 集群**上，设 `mode: "slurm"`。控制器仍留在你的笔记本；训练用 `sbatch --parsable` 通过一次瞬时 SSH 调用提交到登录节点并立即退出（登录节点不留任何进程），`sacct` 是唯一存活权威——Slurm 强制 `--time`，因此任务总是被时间限制 + 安全缓冲回收：
 
 ```yaml
 execution:
   mode: "slurm"
   ssh_host: "user@login-node"
   remote_workspace: "/nfs/home/user/my_project/workspace"
-  slurm_partition: "gpu-h200"     # required
-  slurm_time: "24:00:00"          # required (--time wall limit)
+  slurm_partition: "gpu-h200"     # 必需
+  slurm_time: "24:00:00"          # 必需 (--time 挂钟上限)
   slurm_gpus_per_job: 1           # -> --gres=gpu:N
-  slurm_setup: "module load cuda/12.4"   # optional shell line prepended to the job
+  slurm_setup: "module load cuda/12.4"   # 可选 shell 行，前置到任务
 ```
 
-In Slurm mode the `gpu` argument to `launch_experiment` is ignored — Slurm
-assigns GPUs via `--gres`, so `CUDA_VISIBLE_DEVICES` is not pinned by the agent.
-See `config.yaml` for the full set of `slurm_*` options.
+Slurm 模式下传给 `launch_experiment` 的 `gpu` 参数被忽略——Slurm 通过 `--gres` 分配 GPU，因此 Agent 不钉 `CUDA_VISIBLE_DEVICES`。完整的 `slurm_*` 选项见 `config.yaml`。
 
 ```yaml
 # config.yaml
@@ -1063,111 +866,108 @@ project:
   brief: "PROJECT_BRIEF.md"
 
 execution:
-  mode: "local"                  # or "ssh" / "slurm"
-  ssh_host: ""                   # required in ssh/slurm mode
-  remote_workspace: ""           # required in ssh/slurm mode
+  mode: "local"                  # 或 "ssh" / "slurm"
+  ssh_host: ""                   # ssh/slurm 模式下必需
+  remote_workspace: ""           # ssh/slurm 模式下必需
   remote_python: "python3"
   ssh_args: []
 
 agent:
-  provider: "anthropic"           # "anthropic" or "openai"
-  model: "claude-sonnet-4-6"      # See model table above
-  base_url: ""                    # Optional compatible API endpoint override
-  api_key_env: ""                 # Optional custom API key env var
-  auth_token_env: ""              # Optional custom bearer token env var
-  max_cycles: -1                  # -1 = run forever
-  max_steps_per_cycle: 3          # Max worker dispatches per cycle
-  cooldown_interval: 300          # Smart cooldown polling (seconds)
+  provider: "anthropic"           # "anthropic" 或 "openai"
+  model: "claude-sonnet-4-6"      # 见上方模型表
+  base_url: ""                    # 可选兼容 API 端点覆盖
+  api_key_env: ""                 # 可选自定义 API key env
+  auth_token_env: ""              # 可选自定义 bearer token env
+  max_cycles: -1                  # -1 = 永远运行
+  max_steps_per_cycle: 3          # 每周期最大 worker 派发数
+  cooldown_interval: 300          # 智能冷却轮询（秒）
 
 memory:
-  brief_max_chars: 3000           # Tier 1 cap
-  log_max_chars: 2000             # Tier 2 cap
-  milestone_max_chars: 1200       # Key results cap
-  max_recent_entries: 15          # Rolling decision count
+  brief_max_chars: 3000           # Tier 1 上限
+  log_max_chars: 2000             # Tier 2 上限
+  milestone_max_chars: 1200       # 关键结果上限
+  max_recent_entries: 15          # 滚动决策数
 
 gpu:
   auto_detect: true
-  reserve_last: true              # Reserve last GPU for keep-alive
+  reserve_last: true              # 保留最后一张 GPU 做保活
 
 monitor:
-  poll_interval: 900              # Check every 15 min during training
-  zero_llm: true                  # No LLM during monitoring
+  poll_interval: 900              # 训练期间每 15 分钟检查
+  zero_llm: true                  # 监控期无 LLM
 
 experiment:
-  mandatory_dry_run: true         # Always dry-run before real training
-  max_parallel: 1                 # Concurrent experiments
+  mandatory_dry_run: true         # 真实训练前总先 dry-run
+  max_parallel: 1                 # 并发实验数
 ```
 
 ---
 
-## How It Compares
+## 对比
 
-| | Deep Researcher Agent | [Claude Scholar](https://github.com/Galaxy-Dawn/claude-scholar) | [AI Scientist](https://github.com/SakanaAI/AI-Scientist) | [OpenHands](https://github.com/All-Hands-AI/OpenHands) | [SWE-Agent](https://github.com/princeton-nlp/SWE-agent) |
+| | 深度科研 Agent | [Claude Scholar](https://github.com/Galaxy-Dawn/claude-scholar) | [AI Scientist](https://github.com/SakanaAI/AI-Scientist) | [OpenHands](https://github.com/All-Hands-AI/OpenHands) | [SWE-Agent](https://github.com/princeton-nlp/SWE-agent) |
 |--|:--:|:--:|:--:|:--:|:--:|
-| **Runs experiments autonomously** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Zero-cost training monitoring** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **GPU management** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **24/7 continuous operation** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Constant-size memory** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Paper writing | Basic | ✅ | ✅ | ❌ | ❌ |
-| Knowledge management | Basic | ✅ | ❌ | ❌ | ❌ |
-| General coding | ❌ | ❌ | ❌ | ✅ | ✅ |
+| **自主运行实验** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **零成本训练监控** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **GPU 管理** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **7×24 持续运行** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **恒定大小记忆** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 论文写作 | 基础 | ✅ | ✅ | ❌ | ❌ |
+| 知识管理 | 基础 | ✅ | ❌ | ❌ | ❌ |
+| 通用编码 | ❌ | ❌ | ❌ | ✅ | ✅ |
 
-**Deep Researcher Agent is the only framework built for _running_ deep learning research, not just writing about it.**
+**深度科研 Agent 是唯一为*运行*深度学习研究而构建的框架，而非只写它。**
 
 ---
 
-## Project Structure
+## 项目结构
 
 ```
 AutoDL/
-├── core/                    # Autonomous experiment loop engine
-│   ├── loop.py              # THINK → EXECUTE → REFLECT cycle
-│   ├── execution.py         # Local / SSH execution backends
-│   ├── memory.py            # Two-Tier constant-size memory
-│   ├── monitor.py           # Zero-LLM experiment monitoring
-│   ├── agents.py            # Leader-Worker agent dispatch
-│   └── tools.py             # Minimal per-agent tool registry
-├── skills/                  # Source skills for Claude slash commands + Codex local skills
-│   ├── auto-experiment/     # 24/7 autonomous experiment loop
-│   ├── experiment-status/   # Check experiment progress
-│   ├── gpu-monitor/         # GPU status & availability
-│   ├── daily-papers/        # Daily arXiv recommendations
-│   ├── paper-analyze/       # Deep paper analysis + figure extraction
-│   ├── conf-search/         # Conference paper search
-│   └── progress-report/     # Progress report generation
-├── agents/                  # Agent prompt definitions
-│   ├── leader.md            # Central decision-maker
-│   ├── idea_agent.md        # Literature & hypothesis
-│   ├── code_agent.md        # Experiment execution
-│   └── writing_agent.md     # Reporting & writing
-├── gpu/                     # GPU utilities
-│   ├── detect.py            # Detection & monitoring
-│   └── keeper.py            # Cloud instance keep-alive
-├── examples/                # Ready-to-run demos
-├── docs/                    # Docs + translations (CN/JP)
-├── install.py               # Claude + Codex skill installer
-├── config.yaml              # Default configuration
-└── requirements.txt         # Dependencies
+├── core/                    # 自主实验循环引擎
+│   ├── loop.py              # THINK → EXECUTE → REFLECT 循环 + 机器裁决/收敛
+│   ├── execution.py         # Local / SSH / Slurm 执行后端
+│   ├── memory.py            # 两层恒定大小记忆
+│   ├── monitor.py           # 零 LLM 实验监控
+│   ├── agents.py            # Leader-Worker Agent 派发
+│   ├── tools.py             # 每 Agent 最小工具注册表
+│   ├── ledger.py            # 只追加实验账本
+│   ├── experiment_contract.py # 预算契约 + 写保护 + 机器裁决
+│   └── snapshots.py         # 进度快照导出
+├── skills/                  # Claude 斜杠命令 + Codex 本地技能源
+├── agents/                  # Agent 提示词定义
+│   ├── leader.md            # 中心决策者
+│   ├── idea_agent.md        # 文献与假设
+│   ├── code_agent.md        # 实验执行
+│   └── writing_agent.md     # 报告与写作
+├── gpu/                     # GPU 工具
+│   ├── detect.py            # 检测与监控
+│   └── keeper.py            # 云实例保活
+├── examples/                # 可直接运行的演示
+├── docs/
+│   └── diagrams/            # 架构图 + 训练优化流程图 + 配套说明
+├── install.py               # Claude + Codex 技能安装器
+├── config.yaml              # 默认配置
+└── requirements.txt         # 依赖
 ```
 
 ---
 
-## Contributing
+## 贡献
 
-Areas where we'd love help:
-- More cloud GPU platforms (AWS, GCP, Lambda Labs, RunPod)
-- Experiment tracker integration (W&B, MLflow, TensorBoard)
-- New research skills (visualization, result comparison)
-- Metric extraction for more training frameworks
+我们欢迎帮助的领域：
+- 更多云 GPU 平台（AWS、GCP、Lambda Labs、RunPod）
+- 实验追踪器集成（W&B、MLflow、TensorBoard）
+- 新研究技能（可视化、结果比较）
+- 为更多训练框架做指标提取
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+参见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ---
 
-## Citation
+## 引用
 
-If you find this work useful, please cite our paper:
+若你觉得本工作有用，请引用我们的论文：
 
 ```bibtex
 @article{zhang2026autodeepresearcher,
@@ -1179,7 +979,7 @@ If you find this work useful, please cite our paper:
 }
 ```
 
-Or cite the software release:
+或引用软件发布：
 
 ```bibtex
 @software{auto_deep_researcher_24x7,
@@ -1196,10 +996,10 @@ Or cite the software release:
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE).
+Apache 2.0 — 见 [LICENSE](LICENSE)。
 
 ---
 
 <p align="center">
-  <strong><i>"Experiments run through the night. Results arrive at dawn."</i></strong>
+  <strong><i>"实验彻夜运行，结果拂晓而至。"</i></strong>
 </p>

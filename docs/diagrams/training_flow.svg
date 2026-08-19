@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 1330" role="img" aria-label="AutoDL 训练实验流程">
+  <style>
+    .node rect{fill:#f3f0e9;stroke:#b8b2a6;stroke-width:1.4;}
+    .node.acc rect{fill:#fbe7dd;stroke:#e8612c;}
+    .node.blue rect{fill:#eef3f8;stroke:#bcd2e6;}
+    .node.purp rect{fill:#f1ecf6;stroke:#c9b9dd;}
+    .node.green rect{fill:#eaf4ee;stroke:#b7d8c2;}
+    .node text{font-size:12.5px;fill:#1c1b19;font-family:"Segoe UI",-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;}
+    .node .t2{font-size:10px;fill:#6b6862;}
+    .dia{fill:#fdf6ef;stroke:#e8612c;stroke-width:1.6;}
+    .dia text{font-size:11px;fill:#e8612c;font-weight:600;text-anchor:middle;}
+    .edge{fill:none;stroke:#b8b2a6;stroke-width:1.6;}
+    .edge.acc{stroke:#e8612c;}
+    .edge.link{stroke:#2f6fb0;stroke-dasharray:5 4;}
+    .edge.ok{stroke:#2e8b57;}
+    .edge.dorange{stroke:#c1440e;}
+    .lab{font-size:10px;fill:#6b6862;}
+    .tag{font-size:9.5px;font-weight:700;}
+    .grp{fill:none;stroke:#b8b2a6;stroke-dasharray:5 4;stroke-width:1.3;}
+    .grp-t{font-size:12px;fill:#6b6862;font-weight:600;font-family:"Segoe UI",-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;}
+    text{font-family:"Segoe UI",-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;}
+  </style>
+  <defs>
+    <marker id="t-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#b8b2a6"/>
+    </marker>
+    <marker id="t-arrow-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#e8612c"/>
+    </marker>
+    <marker id="t-arrow-link" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#2f6fb0"/>
+    </marker>
+    <marker id="t-arrow-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#2e8b57"/>
+    </marker>
+    <marker id="t-arrow-dorange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#c1440e"/>
+    </marker>
+  </defs>
+
+  <!-- ===== Group A: 主研究循环 ===== -->
+  <rect class="grp" x="20" y="46" width="1000" height="620" rx="10"/>
+  <text class="grp-t" x="36" y="40">主研究循环 — core/loop.py 每个 cycle（THINK → EXECUTE → REFLECT）</text>
+
+  <g class="node acc"><rect x="415" y="70" width="210" height="48" rx="8"/>
+    <text x="520" y="94" text-anchor="middle" font-weight="700">① 读账本 / 指令</text>
+    <text class="t2" x="520" y="110" text-anchor="middle">PROJECT_BRIEF + HUMAN_DIRECTIVE</text></g>
+  <g class="node"><rect x="415" y="142" width="210" height="48" rx="8"/>
+    <text x="520" y="166" text-anchor="middle" font-weight="600">② Leader THINK</text>
+    <text class="t2" x="520" y="182" text-anchor="middle">分析账本 + 产出假设/计划</text></g>
+  <polygon class="dia" points="520,214 600,248 520,282 440,248"/>
+  <text x="520" y="242" text-anchor="middle" fill="#e8612c" font-weight="600" font-size="11">有可行计划?</text>
+  <text x="520" y="257" text-anchor="middle" fill="#e8612c" font-size="8.5">(action)</text>
+  <g class="node blue"><rect x="415" y="310" width="210" height="48" rx="8"/>
+    <text x="520" y="334" text-anchor="middle" font-weight="600">③ 调度 Code Agent</text>
+    <text class="t2" x="520" y="350" text-anchor="middle">受预算契约约束</text></g>
+
+  <g class="node"><rect x="715" y="310" width="210" height="48" rx="8"/>
+    <text x="820" y="334" text-anchor="middle" font-weight="600">⑤ Monitor</text>
+    <text class="t2" x="820" y="350" text-anchor="middle">零 LLM 等待完成</text></g>
+  <polygon class="dia" points="820,382 900,416 820,450 740,416"/>
+  <text x="820" y="411" text-anchor="middle" fill="#e8612c" font-weight="600" font-size="11">机器裁决</text>
+  <text x="820" y="425" text-anchor="middle" fill="#e8612c" font-size="8.5">KEEP/DISCARD/INCOMPARABLE</text>
+  <g class="node acc"><rect x="715" y="478" width="210" height="48" rx="8"/>
+    <text x="820" y="502" text-anchor="middle" font-weight="700">⑦ 晋级冠军 / 归档</text>
+    <text class="t2" x="820" y="518" text-anchor="middle">Git SHA 锁版 · 先归档后决策</text></g>
+  <g class="node acc"><rect x="715" y="550" width="210" height="48" rx="8"/>
+    <text x="820" y="574" text-anchor="middle" font-weight="700">⑨ 写账本 + 收敛判定</text>
+    <text class="t2" x="820" y="590" text-anchor="middle">连败 N 轮 / 停滞 → 停止</text></g>
+
+  <g class="node"><rect x="110" y="224" width="180" height="48" rx="8"/>
+    <text x="200" y="248" text-anchor="middle" font-weight="600">⑧ 冷却 / 无进展</text>
+    <text class="t2" x="200" y="264" text-anchor="middle">cooldown / 去重退避</text></g>
+
+  <!-- 主循环连线 -->
+  <path class="edge acc" marker-end="url(#t-arrow-acc)" d="M520 118 L520 142"/>
+  <path class="edge" marker-end="url(#t-arrow)" d="M520 190 L520 214"/>
+  <path class="edge" marker-end="url(#t-arrow)" d="M520 282 L520 310"/>
+  <text class="tag" x="528" y="302" fill="#2e8b57">是</text>
+  <path class="edge" marker-end="url(#t-arrow)" d="M440 248 L290 248"/>
+  <text class="tag" x="350" y="244" fill="#6b6862">否</text>
+  <path class="edge link" marker-end="url(#t-arrow-link)" d="M200 224 L200 94 L415 94"/>
+  <path class="edge" marker-end="url(#t-arrow)" d="M625 334 L715 334"/>
+  <path class="edge" marker-end="url(#t-arrow)" d="M820 358 L820 382"/>
+  <path class="edge ok" marker-end="url(#t-arrow-ok)" d="M820 450 L820 478"/>
+  <text class="tag" x="828" y="466" fill="#2e8b57">KEEP</text>
+  <path class="edge" marker-end="url(#t-arrow)" d="M820 526 L820 550"/>
+  <path class="edge" marker-end="url(#t-arrow)" d="M900 416 L970 416 L970 556 L925 556"/>
+  <text class="tag" x="912" y="410" fill="#6b6862">DISCARD/不可比</text>
+  <path class="edge link" marker-end="url(#t-arrow-link)" d="M820 598 L820 640 L60 640 L60 76 L415 76"/>
+
+  <!-- ===== Group B: 训练执行 ===== -->
+  <rect class="grp" x="20" y="720" width="1000" height="560" rx="10"/>
+  <text class="grp-t" x="36" y="714">训练执行 — 步骤 ④ launch_experiment 内部：选后端 → 选模型 → 训练 → 收敛</text>
+
+  <g class="node"><rect x="415" y="738" width="210" height="44" rx="8"/>
+    <text x="520" y="762" text-anchor="middle" font-weight="600">④ launch_experiment</text>
+    <text class="t2" x="520" y="776" text-anchor="middle">选 GPU → nohup / sbatch</text></g>
+
+  <g class="node acc"><rect x="415" y="806" width="210" height="40" rx="8"/>
+    <text x="520" y="830" text-anchor="middle" font-weight="700">选择执行后端</text>
+    <text class="t2" x="520" y="844" text-anchor="middle">config.execution.mode</text></g>
+
+  <g class="node"><rect x="80" y="862" width="200" height="36" rx="8"/>
+    <text x="180" y="884" text-anchor="middle" font-weight="600">local 后端</text>
+    <text class="t2" x="180" y="895" text-anchor="middle">本机 nohup</text></g>
+  <g class="node"><rect x="420" y="862" width="200" height="36" rx="8"/>
+    <text x="520" y="884" text-anchor="middle" font-weight="600">ssh 后端</text>
+    <text class="t2" x="520" y="895" text-anchor="middle">远程 nohup</text></g>
+  <g class="node"><rect x="760" y="862" width="200" height="36" rx="8"/>
+    <text x="860" y="884" text-anchor="middle" font-weight="600">slurm 后端</text>
+    <text class="t2" x="860" y="895" text-anchor="middle">sbatch 提交</text></g>
+
+  <g class="node blue"><rect x="80" y="918" width="280" height="110" rx="8"/>
+    <text x="220" y="942" text-anchor="middle" font-weight="700">CV — CNN (mnist_gpu)</text>
+    <text class="t2" x="220" y="960" text-anchor="middle">batch/LR/scheduler 调参</text>
+    <text class="t2" x="220" y="976" text-anchor="middle">增强 + AMP 混合精度</text>
+    <text class="t2" x="220" y="992" text-anchor="middle">早停 top-1 判别</text>
+    <text class="t2" x="220" y="1008" text-anchor="middle">↳ 运行于 local 后端</text></g>
+  <g class="node purp"><rect x="380" y="918" width="280" height="110" rx="8"/>
+    <text x="520" y="942" text-anchor="middle" font-weight="700">NLP — Transformer 微调</text>
+    <text class="t2" x="520" y="960" text-anchor="middle">llm_finetune · 层/隐藏维调参</text>
+    <text class="t2" x="520" y="976" text-anchor="middle">梯度累积 + 序列优化</text>
+    <text class="t2" x="520" y="992" text-anchor="middle">困惑度/下游指标判别</text>
+    <text class="t2" x="520" y="1008" text-anchor="middle">↳ 显存受限 → ssh/slurm</text></g>
+  <g class="node green"><rect x="680" y="918" width="280" height="110" rx="8"/>
+    <text x="820" y="942" text-anchor="middle" font-weight="700">通用单卡 (single_gpu)</text>
+    <text class="t2" x="820" y="960" text-anchor="middle">单卡/多卡 DDP</text>
+    <text class="t2" x="820" y="976" text-anchor="middle">指标由契约 primary_metric 定义</text>
+    <text class="t2" x="820" y="992" text-anchor="middle">机器裁决据此判 KEEP/DISCARD</text>
+    <text class="t2" x="820" y="1008" text-anchor="middle">↳ 运行于 slurm 后端</text></g>
+
+  <g class="node acc"><rect x="380" y="1056" width="280" height="40" rx="8"/>
+    <text x="520" y="1080" text-anchor="middle" font-weight="700">训练完成 → 产出 metrics</text>
+    <text class="t2" x="520" y="1094" text-anchor="middle">供机器裁决 / 账本记录</text></g>
+
+  <!-- 组B 连线 -->
+  <path class="edge acc" marker-end="url(#t-arrow-acc)" d="M520 782 L520 806"/>
+  <path class="edge" marker-end="url(#t-arrow)" d="M520 846 L520 854 L180 854 L180 862"/>
+  <path class="edge" marker-end="url(#t-arrow)" d="M520 846 L520 854 L520 854 L520 862"/>
+  <path class="edge" marker-end="url(#t-arrow)" d="M520 846 L520 854 L860 854 L860 862"/>
+  <path class="edge" marker-end="url(#t-arrow)" d="M180 898 L180 908 L220 908 L220 918"/>
+  <path class="edge" marker-end="url(#t-arrow)" d="M520 898 L520 918"/>
+  <path class="edge" marker-end="url(#t-arrow)" d="M860 898 L860 908 L820 908 L820 918"/>
+  <path class="edge" marker-end="url(#t-arrow)" d="M860 898 L860 910 L520 910 L520 918"/>
+  <path class="edge" marker-end="url(#t-arrow)" d="M220 1028 L220 1042 L520 1042 L520 1056"/>
+  <path class="edge" marker-end="url(#t-arrow)" d="M520 1028 L520 1056"/>
+  <path class="edge" marker-end="url(#t-arrow)" d="M820 1028 L820 1042 L520 1042 L520 1056"/>
+
+  <!-- 跨组：③ -> 训练执行④ -->
+  <path class="edge dorange" marker-end="url(#t-arrow-dorange)" d="M520 358 L520 738"/>
+  <text class="lab" x="528" y="500" fill="#c1440e">↓ 训练展开</text>
+
+  <!-- 跨组：训练完成 metrics -> ⑤ Monitor -->
+  <path class="edge link" marker-end="url(#t-arrow-link)" d="M660 1076 L980 1076 L980 334 L925 334"/>
+  <text class="lab" x="988" y="700" fill="#2f6fb0">↑ metrics 回流</text>
+</svg>
