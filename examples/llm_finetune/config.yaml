@@ -25,7 +25,7 @@ gpu:
   reserve_last: false
 
 experiment:
-  mandatory_dry_run: true
+  mandatory_dry_run: false
   max_parallel: 1
   log_tail_lines: 40
   budget:
