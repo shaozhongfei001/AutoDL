@@ -3,7 +3,7 @@
 
 覆盖三种后端：本地（Local）、SSH 远程、Slurm 调度，以及公共工厂函数
 build_execution_backend 与两类依赖后端的组件：监控器（ExperimentMonitor）
-与 Obsidian 仪表盘导出器（ObsidianExporter）。核心验证点包括：
+与进度仪表盘导出器（SnapshotExporter）。核心验证点包括：
 
   - 工厂函数能根据不同配置构建出正确的后端类型；
   - 内嵌的 REMOTE_HELPER 脚本具备符号链接逃逸防护（安全约束）；
@@ -33,7 +33,7 @@ from core.execution import (
     _SLURM_FAIL_STATES,
 )
 from core.monitor import ExperimentMonitor
-from core.obsidian import ObsidianExporter
+from core.snapshots import SnapshotExporter
 from core.memory import MemoryManager
 
 
@@ -295,7 +295,7 @@ class SSHExecutionBackendTests(unittest.TestCase):
 
 
 class MonitorAndObsidianBackendTests(unittest.TestCase):
-    """验证监控器与 Obsidian 导出器如何通过后端抽象协作。"""
+    """验证监控器与进度快照导出器如何通过后端抽象协作。"""
 
     def test_monitor_uses_backend_for_pid_log_and_gpu(self):
         # 监控器应通过后端的 is_process_alive / tail_file / get_gpu_status 工作，
@@ -354,7 +354,7 @@ class MonitorAndObsidianBackendTests(unittest.TestCase):
                 )
             )
             memory = MemoryManager(project_dir=project_dir)
-            exporter = ObsidianExporter(
+            exporter = SnapshotExporter(
                 config={"obsidian": {"enabled": True}},
                 project_dir=project_dir,
                 backend=backend,
@@ -374,7 +374,7 @@ class MonitorAndObsidianBackendTests(unittest.TestCase):
             project_dir = Path(tmp)
             (project_dir / "PROJECT_BRIEF.md").write_text("Train model")
             (project_dir / "workspace").mkdir()
-            exporter = ObsidianExporter(
+            exporter = SnapshotExporter(
                 config={"obsidian": {"enabled": True}},
                 project_dir=project_dir,
                 backend=FakeBackend(),

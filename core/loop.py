@@ -18,7 +18,19 @@ from .memory import MemoryManager
 from .monitor import ExperimentMonitor
 from .agents import AgentDispatcher
 from .execution import build_execution_backend
-from .obsidian import ObsidianExporter
+# 进度快照导出（progress snapshot）为可选功能：为消除对核心循环的静态依赖
+# （B 解耦），此处不在顶层硬 import，而在 _refresh_snapshots 中按需惰性导入；
+# 若导入失败（例如未安装 yaml 等），则以 self.obsidian=None 禁用导出。
+# note: 模块已从 core/obsidian.py 重命名为 core/snapshots.py；保留 obsidian 模块
+# 名作为兼容回退入口，优先使用新名字 snapshots。
+try:  # pragma: no cover - 依环境
+    from . import snapshots as _obsidian_mod  # noqa: F401
+except Exception:  # pragma: no cover - 依赖缺失守卫
+    try:
+        from . import obsidian as _obsidian_mod  # noqa: F401
+    except Exception:
+        _obsidian_mod = None
+
 from .tools import ToolRegistry
 from .ledger import ExperimentLedger, detect_stagnation, check_phase_gate
 from .journal import ResearchJournal
@@ -87,11 +99,32 @@ class ResearchLoop:
                     logger.warning(f"experiment contract schema violation: {v}")
             except Exception as exc:  # pragma: no cover - 守卫
                 logger.warning(f"experiment contract validation failed: {exc}")
-        self.obsidian = ObsidianExporter(
-            config=config,
-            project_dir=self.project_dir,
-            backend=self.execution_backend,
+        # 进度导出（obsidian Dashboard / per-exp 快照）为可选功能：禁用或模块
+        # 不可导入时置 None，绝不因导出功能阻塞核心循环（B+C 解耦）。
+        obsidian_cfg = config.get("obsidian", {}) or {}
+        obsidian_enabled = bool(obsidian_cfg.get("enabled", False))
+        self.obsidian_records_dir = self.workspace / obsidian_cfg.get(
+            "local_fallback_dir", "progress_tracking"
         )
+        self.obsidian = None
+        if obsidian_enabled and _obsidian_mod is not None:
+            try:
+                # 类已由 ObsidianExporter 重命名为 SnapshotExporter；保留旧名兼容回退。
+                exporter_cls = getattr(
+                    _obsidian_mod, "SnapshotExporter",
+                    getattr(_obsidian_mod, "ObsidianExporter", None),
+                )
+                if exporter_cls is None:
+                    self.obsidian = None
+                else:
+                    self.obsidian = exporter_cls(
+                        config=config,
+                        project_dir=self.project_dir,
+                        backend=self.execution_backend,
+                    )
+            except Exception as exc:  # pragma: no cover - 守卫
+                logger.warning(f"obsidian exporter init failed, disabled: {exc}")
+                self.obsidian = None
 
         # v2 自主模块：持久实验账本 + 研究日志。全部为增量、建议性——
         # 它们丰富 THINK 上下文，但除非在 config 中显式启用，不改变控制流。
@@ -686,16 +719,41 @@ class ResearchLoop:
         return result
 
     def _refresh_obsidian(self, reflect_result: dict, directive: Optional[str]):
-        if not self.obsidian.is_enabled():
-            return
-        self.obsidian.refresh_dashboard(memory=self.memory, cycle_count=self.cycle_count)
-        self.obsidian.append_daily_entry(
-            memory=self.memory,
-            cycle_count=self.cycle_count,
-            event_type="cycle_complete",
-            reflection=reflect_result,
-            directive=directive,
-        )
+        """刷新进度导出：per-exp 快照（B+C）+ 全局 Dashboard 总览索引。
+
+        本地快照（progress_tracking/）始终写入（不依赖 obsidian vault）；
+        若已配置并启用 Obsidian vault，则额外刷新 Dashboard/Daily 到 vault。
+        """
+        # 1) 每实验一份独立快照（exp_{cycle}_{pid}.md），数据来自自有 ledger。
+        if _obsidian_mod is not None and self.ledger is not None:
+            try:
+                entries = self.ledger.all()
+                # 命名收敛（选项1）：把一个实验的多条记录（launch+verdict）聚合成
+                # 一份快照，实现「一个实验一个文件」。
+                for entry in _obsidian_mod.merge_entries_by_cycle(entries):
+                    _obsidian_mod.write_experiment_snapshot(
+                        self.obsidian_records_dir, entry
+                    )
+                # 2) 生成全局总览索引 Dashboard.md（仅作为索引，不覆写 vault 版）。
+                index = _obsidian_mod.build_dashboard_index(self.obsidian_records_dir)
+                index_path = self.obsidian_records_dir / "Dashboard.md"
+                index_path.parent.mkdir(parents=True, exist_ok=True)
+                index_path.write_text(index, encoding="utf-8")
+            except Exception as exc:  # pragma: no cover - 导出失败不阻塞循环
+                logger.warning(f"progress snapshot refresh failed: {exc}")
+        # 3) 若启用 Obsidian vault，则额外刷新 Dashboard/Daily（保留原有能力）。
+        if self.obsidian is not None and self.obsidian.is_enabled():
+            try:
+                self.obsidian.refresh_dashboard(memory=self.memory, cycle_count=self.cycle_count)
+                self.obsidian.append_daily_entry(
+                    memory=self.memory,
+                    cycle_count=self.cycle_count,
+                    event_type="cycle_complete",
+                    reflection=reflect_result,
+                    directive=directive,
+                )
+            except Exception as exc:  # pragma: no cover - 导出失败不阻塞循环
+                logger.warning(f"obsidian dashboard refresh failed: {exc}")
 
     def _plan_signature(self, plan: dict) -> str:
         """为重复计划检测构建稳定签名。"""

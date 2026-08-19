@@ -155,7 +155,7 @@ class ResearchLoopProviderConfigTests(unittest.TestCase):
 
     @patch("core.loop.AgentDispatcher")
     @patch("core.loop.ToolRegistry")
-    @patch("core.loop.ObsidianExporter")
+    @patch("core.loop._obsidian_mod.SnapshotExporter")
     @patch("core.loop.ExperimentMonitor")
     @patch("core.loop.MemoryManager")
     @patch("core.loop.build_execution_backend")
