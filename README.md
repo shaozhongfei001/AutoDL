@@ -9,16 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> |
-  <a href="docs/README_CN.md">中文</a>
-</p>
-
-<p align="center">
   <a href="#快速开始"><img src="https://img.shields.io/badge/-快速开始-blue?style=for-the-badge" alt="快速开始"/></a>
   <a href="#架构"><img src="https://img.shields.io/badge/-架构-orange?style=for-the-badge" alt="架构"/></a>
 </p>
-
-
 
 ## 你需要什么
 
@@ -140,7 +133,7 @@ workspace/progress_tracking/Daily/YYYY-MM-DD.txt
 
 ---
 
-## 💛 为什么我们做这个——以及希望你如何使用它
+## 💛 Why AutoDL
 
 > **我们的希望很简单：科学保持纯粹，人始终在循环里。**
 
@@ -640,9 +633,7 @@ Monitor 检测到进程死亡，抓取错误日志，传给 REFLECT。Agent 会�
 
 ---
 
-## 一键安装（Claude + Codex）
-
-所有功能打包为 Claude Code 斜杠命令和 Codex 本地技能。
+## 一键安装
 **一条命令安装：**
 
 ```bash
@@ -681,21 +672,14 @@ python install.py --uninstall
 
 ## 支持的 LLM 供应商
 
-开箱即用支持 **Anthropic 兼容与 OpenAI 兼容 API**，也能通过本地 CLI 用**包月订阅**而非按 token 计费运行。
-
-| 层级 | Anthropic (Claude) | OpenAI (Codex/GPT) | 最适合 |
-|------|-------------------|-------------------|--------|
-| **快** | `claude-sonnet-4-6` | `codex-5.3` | 日常实验、迭代 |
-| **最强** | `claude-opus-4-6` | `gpt-5.4` | 复杂推理、架构决策 |
+开箱即用支持 OpenAI 兼容 API**，也能通过本地 CLI 用**包月订阅**而非按 token 计费运行。
 
 ### 认证方式：API key 与订阅
 
 | 模式 | `provider` 值 | 计费 | 需要 | 工具调用支持 |
 |------|---------------|------|------|--------------|
-| API — Anthropic 兼容 | `anthropic` | 按 token，通过 `ANTHROPIC_API_KEY` 或自定义 env | `pip install anthropic` | ✅ 完整 |
 | API — OpenAI 兼容 | `openai` | 按 token，通过 `OPENAI_API_KEY` 或自定义 env | `pip install openai` | ✅ 完整 |
-| **订阅 — Claude** | `claude_cli` | 包月，用你的 Claude Code/Pro/Max 计划 | 已安装并登录 `claude` CLI | ✅ 完整 |
-| **订阅 — ChatGPT** | `codex_cli` | 包月，用你的 ChatGPT Plus/Pro 计划 | 已安装并登录 `codex` CLI | ⚠️ 仅 Leader |
+| **订阅 — DeepSeek** | `codex_cli` | 包月，用你的 ChatGPT Plus/Pro 计划 | 已安装并登录 `codex` CLI | ⚠️ 仅 Leader |
 
 工具执行由注入到 worker 系统提示中的文本 `<tool_call>` 协议驱动。三个"完整"供应商都可强制进入纯文本 oracle 模式以遵守协议（对 `claude_cli`，框架传 `--tools ""` 禁用内建 CLI 工具）。`codex` CLI 目前没有等价 flag——其内部 agentic 循环会绕过协议，框架无法从其启动的实验恢复 PID。因此 `codex_cli` 只用于无需工具的 leader/think 路径。
 
@@ -884,18 +868,6 @@ AutoDL/
 ```
 
 ---
-
-## 贡献
-
-我们欢迎帮助的领域：
-- 更多云 GPU 平台（AWS、GCP、Lambda Labs、RunPod）
-- 实验追踪器集成（W&B、MLflow、TensorBoard）
-- 新研究技能（可视化、结果比较）
-- 为更多训练框架做指标提取
-
-参见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-
 
 <p align="center">
   <strong><i>"实验彻夜运行，结果拂晓而至。"</i></strong>
