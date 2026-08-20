@@ -18,77 +18,7 @@
   <a href="#架构"><img src="https://img.shields.io/badge/-架构-orange?style=for-the-badge" alt="架构"/></a>
 </p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python"/>
-  <img src="https://img.shields.io/badge/Claude_Code-compatible-blueviolet.svg" alt="Claude Code"/>
-  <img src="https://img.shields.io/badge/Codex_CLI-compatible-green.svg" alt="Codex CLI"/>
-  <img src="https://img.shields.io/badge/license-Apache_2.0-green.svg" alt="License"/>
-  <a href="https://github.com/shaozhongfei001/AutoDL/stargazers"><img src="https://img.shields.io/github/stars/shaozhongfei001/AutoDL?color=yellow&logo=github&label=Stars" alt="Stars"/></a>
-</p>
 
-<p align="center">
-  <a href="https://arxiv.org/abs/2604.05854"><img src="https://img.shields.io/badge/技术报告-2604.05854-b31b1b.svg" alt="技术报告"/></a>
-</p>
-
----
-
-## 近期更新
-
-**2026-06-03 — 国产 LLM API 预设**
-
-- 通过把 `agent.provider` 设为一个单词预设（`deepseek`、`qwen`(`dashscope`)、`kimi`(`moonshot`)、`glm`(`zhipu`)），即可改用**中文 LLM API** 而非 Claude/Codex 订阅。预设会自动填充 OpenAI 兼容的 `base_url` 与默认 key 环境变量（`DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY` / `MOONSHOT_API_KEY` / `ZHIPUAI_API_KEY`）；你只需把 `model` 设为该厂商的模型 id。`base_url` / `api_key_env` 仍可覆盖以支持自建或代理端点。这只是对既有 OpenAI 兼容路径的一层薄别名，无新增依赖。（`core/agents.py`）
-
-  ```yaml
-  agent:
-    provider: "deepseek"      # 或 qwen / kimi / glm
-    model: "deepseek-chat"    # 厂商模型 id
-  ```
-
-**2026-06-02 — Slurm 执行后端 + 真实实验结果**
-
-- **Slurm 执行后端**：新增 `execution.mode: "slurm"`，使 Agent 能在 Slurm 集群上驱动实验。控制器保持在本地；训练通过**一次瞬时 SSH 调用**用 `sbatch --parsable` 提交到登录节点并立即退出——**绝不在登录节点留下持久进程**。`sacct` 是唯一存活权威（Slurm 强制 `--time`），GPU 状态通过分区 `squeue` 占用读取；存活检测内置两道边界（连续 unknown 宽限 + 由 `--time` 派生的挂钟兜底），保证即使集群不可达，monitor 循环也能终止——同时绝不回收 `sacct` 仍报告为排队/运行中的任务。文件与仓库阅读操作复用 SSH 路径（登录节点与控制器共享 NFS 工作区）。（`core/execution.py`）
-- **真实实验结果**：monitor 现在通过 `final_status()` 向后端询问已完成任务的真实终态，因此 `FAILED` / `TIMEOUT` / `CANCELLED` 的运行不再被静默记为 `completed`。结果流入 `state.json`、实验账本与 REFLECT 上下文，使 Agent 基于真实发生的情况推理。Slurm 上状态来自 `sacct`；仅靠 PID 的后端（`local`/`ssh`）报告为不确定并保留原行为。（`core/monitor.py`、`core/loop.py`）
-- 增量且可选开启；`local`/`ssh` 行为不变。（+21 单元测试，无需集群。）
-
-**2026-06-01 — v2.0（重大更新）**
-
-此次发布给 Agent 带来 (a) 对其自身实验的持久、可查询记忆，(b) 由该记忆派生的显式进度/质量/安全信号，以及 (c) 更强的代码与文献阅读工具。所有变更均为增量且向后兼容——既有项目可无改动继续工作，新闸门与速率限制为可选开启，整套测试在无 GPU、无网络下运行（60 → 99 测试）。
-
-*新增：自主层*
-- **实验账本**：每轮假设、指标与结果追加到 `workspace/experiments.jsonl`。崩溃安全、零 token 成本，并反馈进规划，使 Agent 记住自己试过什么。（`core/ledger.py`）
-- **数据驱动停滞信号**：规划器从账本的指标轨迹获知结果是仍在改进还是已停滞（设置 `ledger.metric_key`），而非只靠二值重复计数。
-- **只追加研究日志**：`DEAD_ENDS.md`（失败方法——勿重试）与 `INSIGHTS.md`（持久观察）。永不压缩；过大时轮转至带日期的备份，历史永不静默丢失。（`core/journal.py`）
-- **零成本违规扫描 + 建议性阶段闸门**：作为 state + ledger 上的纯函数，暴露卡死/陈旧状态以及是否满足基线指标门槛。（`core/safety.py`、`core/ledger.py`）
-- **主动防烧钱限流**：可选 `agent.max_cycles_per_hour` 上限，在 Agent 陷入死循环时保护预算。
-
-*新增：Agent 工具*
-- **代码理解**：`search_code`（跨工作区正则 grep）、`list_tree`（递归、限深的仓库地图）、`read_file` 行区间（大文件不再被盲目截断）。符号链接安全（绝不逃逸工作区）。
-- **文献**：`get_paper`（论文详情 + 引用雪球）与 `search_arxiv`（最新预印本），叠加既有 Semantic Scholar 检索。
-- 所有新工具在 **local 与 SSH** 执行模式下行为一致。
-
-*配置：* 新增可选段 `ledger:`、`stagnation:`、`journal:`、`safety:`、`gates:`、`agent.max_cycles_per_hour`——全部默认保持当前行为。参见 `config.yaml`。
-
-**2026-04-22** — 增加显式兼容 API 配置、Claude/Codex 双技能安装、更安全的技能安装器属主检查。
-
-**2026-04-21** — 增加可选 SSH 执行后端：控制器留在本地，而代码编辑、训练、日志、PID 检查与 GPU 查询跑在一台远程主机上。
-
-**2026-04-19** — 增加真实的多次工具调用 worker 循环，带权威工具结果交接、更严格的 CLI 行为与更安全的工具调用解析。
-
-**2026-04-18** — 增加订阅制 `claude_cli` 与 `codex_cli` 供应商模式，带快速失败供应商校验与更防御性的 CLI 子进程处理。
-
-**2026-04-09** — 通过 leader 历史重置、无进展回退与更强的路径/shell 防护，抑制 token 膨胀并收紧循环与工具保护。
-
-**2026-04-08** — 增加进度跟踪导出，带可选 Obsidian 同步，无 vault 时回退到本地文本。
-
-## 三步快速开始
-
-如果你只想要最短路径跑通实验循环：
-
-1. 建一个项目文件夹，内含一个文件：`PROJECT_BRIEF.md`
-2. 运行 `/auto-experiment --project /path/to/project --gpu 0`
-3. 通过 `/experiment-status` 或可选的 Obsidian/本地文本查看进度
-
-希望 AI 引导配置？在 Claude / ChatGPT / Codex 中打开 [`AI_GUIDE.md`](AI_GUIDE.md)，让助手带你走一遍。
 
 ## 你需要什么
 
